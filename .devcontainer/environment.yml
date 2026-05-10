@@ -1,0 +1,61 @@
+# .devcontainer/environment.yml
+# Optimized for fast dependency resolution with Miniforge/mamba
+
+name: upside2-env
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # --- Build tools ---
+  # Installing these via conda ensures that packages requiring compilation
+  # (like prody, mdtraj) have the correct C/C++ compilers and Python headers.
+  - c-compiler
+  - cxx-compiler
+  - make
+
+  # --- Core Python and Packages ---
+  - python=3.11
+  
+  # --- Scientific Computing Stack ---
+  - numpy>=1.26
+  - scipy
+  - pandas
+  
+  # --- HDF5 and related packages ---
+  - pytables
+  - h5py
+  
+  # --- Statistical and analysis packages ---
+  # Note: pymbar not available for linux-aarch64, install via pip if needed
+  # - pymbar
+  
+  # --- Project-specific dependencies ---
+  # These are now installed directly from conda-forge for better compatibility
+  - mdtraj
+  - prody
+
+  # --- Web server backend (web/server/app.py) ---
+  - flask>=3.0
+
+  # --- Machine learning (used by analysis/dynalab_analysis.py PCA step) ---
+  - scikit-learn
+
+  # --- Development and utility tools ---
+  # setuptools<81 is REQUIRED: setuptools 81+ removed pkg_resources from the
+  # distribution, but prody 2.4.1 still does `import pkg_resources` at module
+  # load time. Without this pin, every prody-using script crashes at import.
+  - setuptools<81
+  - pip
+  
+  # --- Data science and visualization ---
+  - matplotlib
+  - seaborn
+  - jupyter
+  - jupyterlab
+  - ipywidgets
+  - nglview
+  
+  # --- Pip section ---
+  # Keep minimal; only for packages not available on conda-forge
+  - pip: []

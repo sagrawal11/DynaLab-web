@@ -1,0 +1,15 @@
+{
+  "duration": 400,
+  "frameInterval": 10,
+  "temperature": 0.8,
+  "enablePulling": false,
+  "afmEntries": [
+    {
+      "residue": "0",
+      "spring": "0.05",
+      "velX": "0",
+      "velY": "0",
+      "velZ": "-0.001"
+    }
+  ]
+}

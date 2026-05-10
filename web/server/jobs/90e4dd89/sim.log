@@ -1,0 +1,78 @@
+$ /opt/conda/envs/upside2-env/bin/python /workspaces/DynaLab-merge-dynalab/start/Single_Replica.py input /workspaces/DynaLab-merge-dynalab/web/server/jobs/90e4dd89 sim 400 10 False 0.8 None
+
+/opt/conda/envs/upside2-env/lib/python3.11/site-packages/prody/utilities/misctools.py:424: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  import pkg_resources
+@> 6046 atoms and 1 coordinate set(s) were parsed in 0.07s.
+invocation: /workspaces/DynaLab-merge-dynalab/obj/upside --duration 400 --frame-interval 10 --temperature 0.8 --seed 80530 --disable-recentering --record-momentum .//outputs/sim/sim.run.up
+random seed: 80530
+.//outputs/sim/sim.run.up
+n_atom 2274
+
+
+0 0.80
+
+Initial potential energy: -884.36
+  0 / 400 elapsed  0 system 0.80 temp 601.0 hbonds, Rg  35.1 A, potential  -884.36
+ 10 / 400 elapsed  0 system 0.80 temp 709.9 hbonds, Rg  34.9 A, potential -1253.40
+ 20 / 400 elapsed  0 system 0.80 temp 698.9 hbonds, Rg  35.0 A, potential -1067.44
+ 30 / 400 elapsed  0 system 0.80 temp 703.7 hbonds, Rg  35.1 A, potential -1095.21
+ 40 / 400 elapsed  0 system 0.80 temp 696.5 hbonds, Rg  35.1 A, potential -1155.02
+ 50 / 400 elapsed  0 system 0.80 temp 698.5 hbonds, Rg  35.1 A, potential -1156.94
+ 60 / 400 elapsed  0 system 0.80 temp 689.2 hbonds, Rg  35.0 A, potential -1052.59
+ 70 / 400 elapsed  0 system 0.80 temp 684.8 hbonds, Rg  34.9 A, potential -1120.35
+ 80 / 400 elapsed  0 system 0.80 temp 694.3 hbonds, Rg  34.9 A, potential -1134.72
+ 90 / 400 elapsed  0 system 0.80 temp 688.2 hbonds, Rg  34.9 A, potential -1066.11
+100 / 400 elapsed  0 system 0.80 temp 696.6 hbonds, Rg  34.9 A, potential -1033.84
+110 / 400 elapsed  0 system 0.80 temp 699.7 hbonds, Rg  35.0 A, potential -1063.85
+120 / 400 elapsed  0 system 0.80 temp 683.9 hbonds, Rg  35.1 A, potential -1127.88
+130 / 400 elapsed  0 system 0.80 temp 686.0 hbonds, Rg  35.0 A, potential -1117.75
+140 / 400 elapsed  0 system 0.80 temp 702.8 hbonds, Rg  34.7 A, potential -1132.00
+150 / 400 elapsed  0 system 0.80 temp 684.6 hbonds, Rg  34.6 A, potential -1080.97
+160 / 400 elapsed  0 system 0.80 temp 686.7 hbonds, Rg  34.4 A, potential -1066.88
+170 / 400 elapsed  0 system 0.80 temp 669.9 hbonds, Rg  34.3 A, potential  -995.19
+180 / 400 elapsed  0 system 0.80 temp 687.1 hbonds, Rg  34.3 A, potential -1008.70
+190 / 400 elapsed  0 system 0.80 temp 683.4 hbonds, Rg  34.3 A, potential -1078.26
+200 / 400 elapsed  0 system 0.80 temp 701.1 hbonds, Rg  34.3 A, potential -1196.45
+210 / 400 elapsed  0 system 0.80 temp 700.3 hbonds, Rg  34.4 A, potential -1220.01
+220 / 400 elapsed  0 system 0.80 temp 699.2 hbonds, Rg  34.6 A, potential -1154.87
+230 / 400 elapsed  0 system 0.80 temp 702.4 hbonds, Rg  34.6 A, potential -1149.32
+240 / 400 elapsed  0 system 0.80 temp 703.5 hbonds, Rg  34.5 A, potential -1173.09
+250 / 400 elapsed  0 system 0.80 temp 697.4 hbonds, Rg  34.4 A, potential -1149.47
+260 / 400 elapsed  0 system 0.80 temp 716.3 hbonds, Rg  34.3 A, potential -1222.47
+270 / 400 elapsed  0 system 0.80 temp 721.4 hbonds, Rg  34.2 A, potential -1125.05
+280 / 400 elapsed  0 system 0.80 temp 687.8 hbonds, Rg  34.3 A, potential -1054.60
+290 / 400 elapsed  0 system 0.80 temp 706.1 hbonds, Rg  34.3 A, potential -1234.45
+300 / 400 elapsed  0 system 0.80 temp 704.6 hbonds, Rg  34.5 A, potential -1158.31
+310 / 400 elapsed  0 system 0.80 temp 710.2 hbonds, Rg  34.6 A, potential -1119.55
+320 / 400 elapsed  0 system 0.80 temp 704.4 hbonds, Rg  34.6 A, potential -1068.55
+330 / 400 elapsed  0 system 0.80 temp 701.2 hbonds, Rg  34.5 A, potential -1048.00
+340 / 400 elapsed  0 system 0.80 temp 714.3 hbonds, Rg  34.4 A, potential -1110.16
+350 / 400 elapsed  0 system 0.80 temp 720.0 hbonds, Rg  34.4 A, potential -1187.90
+360 / 400 elapsed  0 system 0.80 temp 724.7 hbonds, Rg  34.3 A, potential -1199.14
+370 / 400 elapsed  0 system 0.80 temp 697.8 hbonds, Rg  34.3 A, potential -1157.22
+380 / 400 elapsed  0 system 0.80 temp 710.7 hbonds, Rg  34.3 A, potential -1183.24
+390 / 400 elapsed  0 system 0.80 temp 710.4 hbonds, Rg  34.5 A, potential -1199.71
+400 / 400 elapsed  0 system 0.80 temp 715.2 hbonds, Rg  34.7 A, potential -1232.69
+
+
+finished in 448.5 seconds (10090.14 us/systems/step, 3.2e+03 simulation_time_unit/hour)
+
+avg_kinetic_energy/1.5kT  1.001
+Warning: no previous trajectory file .//outputs/sim/sim.run.up!
+set "continue_sim = False" and start a new simulation
+Initial structure gen...
+python /workspaces/DynaLab-merge-dynalab/py/PDB_to_initial_structure.py /workspaces/DynaLab-merge-dynalab/web/server/jobs/90e4dd89/input.pdb .//inputs/input --record-chain-breaks --disable-recentering 
+Configuring...
+Configuring...
+Config commandline options:
+/workspaces/DynaLab-merge-dynalab/py/upside_config.py --fasta=.//inputs/input.fasta --output=.//inputs/input.up --initial-structure=.//inputs/input.initial.npy --rama-library=/workspaces/DynaLab-merge-dynalab/parameters/common/rama.dat --rama-sheet-mixing-energy=/workspaces/DynaLab-merge-dynalab/parameters/ff_2.1/sheet --hbond-energy=/workspaces/DynaLab-merge-dynalab/parameters/ff_2.1/hbond.h5 --reference-state-rama=/workspaces/DynaLab-merge-dynalab/parameters/common/rama_reference.pkl --rotamer-placement=/workspaces/DynaLab-merge-dynalab/parameters/ff_2.1/sidechain.h5 --dynamic-rotamer-1body --rotamer-interaction=/workspaces/DynaLab-merge-dynalab/parameters/ff_2.1/sidechain.h5 --environment-potential=/workspaces/DynaLab-merge-dynalab/parameters/ff_2.1/environment.h5 --bb-environment-potential=/workspaces/DynaLab-merge-dynalab/parameters/ff_2.1/bb_env.dat --chain-break-from-file=.//inputs/input.chain_breaks
+
+n_chains: 1
+
+hbond, 711 donors, 757 acceptors in sequence
+
+
+Advanced Config commandline options:
+/workspaces/DynaLab-merge-dynalab/py/advanced_config.py --config=.//inputs/input.up
+
+Running...

@@ -1,0 +1,9 @@
+flask>=3.0
+# Required by analysis/dynalab_analysis.py for post-processing trajectories.
+# These already ship with the upside2-env conda environment, but pip needs
+# them installed in whichever interpreter actually runs the server.
+numpy
+matplotlib
+mdtraj
+tables
+scikit-learn
