@@ -12,7 +12,7 @@ cd /workspaces/DynaLab-merge-dynalab/web/server
 python app.py
 ```
 
-Then open http://localhost:5001/intermediate/ in your browser.
+Then open **http://localhost:5001/** in your browser (redirects to the DynaLab UI at `/intermediate/`).
 
 All Python dependencies (Flask, mdtraj, scikit-learn, matplotlib, etc.) are baked into `upside2-env` via `.devcontainer/environment.yml`, so no extra `pip install` step is needed. If you build on a non-conda system (e.g. plain Linux EC2 without conda), `requirements.txt` lists what pip would need.
 
@@ -27,7 +27,7 @@ If `which python` shows a base conda path (e.g. `/opt/conda/bin/python`) instead
 
 ## What it does
 
-- Serves the existing static UIs at `/intermediate/` and `/advanced/`.
+- Serves the DynaLab static UI under `/intermediate/`; **`GET /` redirects there** (default landing page).
 - `POST /api/jobs` — accepts a PDB upload + JSON config, runs the simulation as a subprocess, returns a `job_id`.
 - `GET /api/jobs/<job_id>` — returns status, current step, and total steps (parsed from the simulation log).
 - `GET /api/jobs/<job_id>/download` — downloads the completed `.run.up` trajectory.

@@ -7,3 +7,10 @@ matplotlib
 mdtraj
 tables
 scikit-learn
+# Phase 3 (AI design via Tamarind Bio) needs an HTTP client.
+requests
+# Phase 2 (back-mapping) optionally uses OpenMM for energy minimisation.
+# OpenMM is heavy and best installed via conda (`conda install -c conda-forge openmm`).
+# If you don't need the minimisation step, the back-mapper falls back to a
+# straight PULCHRA copy and still produces usable all-atom PDBs - so leaving
+# OpenMM out of this requirements file is intentional.

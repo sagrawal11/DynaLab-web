@@ -39,6 +39,16 @@ RUN chmod +x /tmp/install_dssp.sh && \
     /tmp/install_dssp.sh && \
     rm /tmp/install_dssp.sh
 
+# Build PULCHRA from source for Phase 2 (CG -> all-atom back-mapping).
+# PULCHRA reconstructs all heavy atoms from a CA-only trace, which is what
+# we feed AI binder design pipelines (RFdiffusion / ProteinMPNN).
+# install_pulchra.sh fetches the upstream source and installs `pulchra`
+# to /usr/local/bin.
+COPY .devcontainer/install_pulchra.sh /tmp/install_pulchra.sh
+RUN chmod +x /tmp/install_pulchra.sh && \
+    /tmp/install_pulchra.sh && \
+    rm /tmp/install_pulchra.sh
+
 # Create a symlink to fix the hardcoded Eigen3 path in the build scripts.
 # This makes the scripts' expected path point to the actual installation location.
 RUN mkdir -p /home/user && \
@@ -93,7 +103,7 @@ RUN conda update -n base -c defaults conda && \
         { echo "ERROR: upside2-env was created without a conda-meta directory; aborting build." >&2; exit 1; }; \
     echo "Force-reinstalling setuptools<81 via pip to guarantee pkg_resources is importable..."; \
     /opt/conda/envs/upside2-env/bin/pip install --force-reinstall 'setuptools<81'; \
-    /opt/conda/envs/upside2-env/bin/python -c "import flask, sklearn, mdtraj, tables, matplotlib, prody, pkg_resources" || \
+    /opt/conda/envs/upside2-env/bin/python -c "import flask, sklearn, mdtraj, tables, matplotlib, prody, pkg_resources, requests" || \
         { echo "ERROR: upside2-env is missing required packages." >&2; exit 1; }
 
 # Hand /opt/conda over to the non-root `user` account so pip and conda

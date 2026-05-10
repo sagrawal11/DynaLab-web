@@ -15,7 +15,7 @@ NEEDS_RECREATE=0
 if [ ! -d "$ENV_PATH/conda-meta" ]; then
     echo "  upside2-env is missing conda-meta; will recreate."
     NEEDS_RECREATE=1
-elif ! "$ENV_PATH/bin/python" -c "import flask, sklearn, mdtraj, tables, matplotlib" 2>/dev/null; then
+elif ! "$ENV_PATH/bin/python" -c "import flask, sklearn, mdtraj, tables, matplotlib, prody, pkg_resources, requests" 2>/dev/null; then
     echo "  upside2-env is missing required packages; will recreate."
     NEEDS_RECREATE=1
 fi
@@ -24,6 +24,13 @@ if [ "$NEEDS_RECREATE" = "1" ]; then
     sudo rm -rf "$ENV_PATH"
     conda env create -f "$SCRIPT_DIR/environment.yml"
     sudo chown -R user:user /opt/conda
+    # Belt-and-suspenders setuptools pin: prody 2.4.1 imports pkg_resources
+    # at module load time, but setuptools 81+ removed it from the dist. We
+    # already pin setuptools<81 in environment.yml, but pip-forcing it here
+    # guards against any future channel that ships a newer setuptools.
+    "$ENV_PATH/bin/pip" install --force-reinstall 'setuptools<81'
+    "$ENV_PATH/bin/python" -c "import flask, sklearn, mdtraj, tables, matplotlib, prody, pkg_resources, requests" \
+        || { echo "ERROR: upside2-env recreate succeeded but imports still fail." >&2; exit 1; }
     echo "  upside2-env recreated."
 else
     echo "  upside2-env looks healthy."

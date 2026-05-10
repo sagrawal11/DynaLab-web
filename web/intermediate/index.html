@@ -3,21 +3,63 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Upside Intermediate Demo</title>
+    <title>DynaLab — Upside MD</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Upside Molecular Dynamics</h1>
-            <p class="subtitle">Parameterized Simulation Interface</p>
+            <h1>DynaLab</h1>
+            <p class="subtitle">Coarse-grained MD, pulling, and binder pipeline</p>
+            <button id="open-settings-btn" type="button" class="settings-btn">
+                <span class="settings-btn__icon" aria-hidden="true">⚙</span> Settings
+            </button>
         </header>
+
+        <!-- Settings dialog (Phase 3: Tamarind API key) -->
+        <div id="settings-dialog" class="settings-dialog hidden">
+            <div class="settings-panel">
+                <h2>Settings</h2>
+                <div class="input-group">
+                    <div class="label-with-help">
+                        <label for="tamarind-api-key">Tamarind Bio API key</label>
+                        <button type="button" class="help-btn" data-help="settings_tamarind" aria-label="Help: Tamarind API key">?</button>
+                    </div>
+                    <input type="password" id="tamarind-api-key" placeholder="paste API key here" autocomplete="off">
+                    <p class="param-description">
+                        Stored locally in <code>web/server/.env</code> (gitignored).
+                        Phase 3 (AI nanobody design) uses Tamarind Bio's RFdiffusion /
+                        ProteinMPNN / AlphaFold-Multimer endpoints. Without a key the
+                        pipeline falls back to a deterministic mock client - useful
+                        for testing the full UI flow offline.
+                    </p>
+                </div>
+                <div class="input-group">
+                    <div class="label-with-help">
+                        <label for="tamarind-endpoint">API endpoint</label>
+                        <button type="button" class="help-btn" data-help="settings_endpoint" aria-label="Help: API endpoint">?</button>
+                    </div>
+                    <input type="text" id="tamarind-endpoint" placeholder="https://api.tamarind.bio">
+                </div>
+                <div id="settings-status" class="param-description"></div>
+                <div class="settings-actions">
+                    <button id="settings-save-btn" type="button" class="run-button">Save</button>
+                    <button id="settings-close-btn" type="button" class="add-btn">Close</button>
+                </div>
+            </div>
+        </div>
 
         <main>
             <!-- Card 1: Upload PDB Structure -->
             <div class="card" id="upload-card">
                 <div class="card-header">
-                    <h2>1. Upload PDB Structure</h2>
+                    <div class="card-title-group">
+                        <h2 id="card-upload">1. Upload structure</h2>
+                        <button type="button" class="help-btn" data-help="upload_pdb" aria-label="Help: PDB upload">?</button>
+                    </div>
                 </div>
                 <div class="card-content">
                     <div class="file-upload">
@@ -34,7 +76,10 @@
             <!-- Card 2: Contact Details -->
             <div class="card" id="contact-card">
                 <div class="card-header">
-                    <h2>2. Contact Details</h2>
+                    <div class="card-title-group">
+                        <h2>2. Contact (optional)</h2>
+                        <button type="button" class="help-btn" data-help="contact_details" aria-label="Help: contact fields">?</button>
+                    </div>
                 </div>
                 <div class="card-content">
                     <div class="input-group">
@@ -54,12 +99,18 @@
             <!-- Card 3: Basic Simulation (const T or replica exchange) -->
             <div class="card" id="basic-sim-card">
                 <div class="card-header">
-                    <h2>3. Basic Simulation</h2>
+                    <div class="card-title-group">
+                        <h2 id="card-basic-sim">3. Basic simulation</h2>
+                        <button type="button" class="help-btn" data-help="basic_simulation" aria-label="Help: basic simulation">?</button>
+                    </div>
                 </div>
                 <div class="card-content">
                     <div class="config-grid">
                         <div class="config-group">
-                            <label for="sim-mode">Simulation Mode</label>
+                            <div class="label-with-help">
+                                <label for="sim-mode">Simulation mode</label>
+                                <button type="button" class="help-btn" data-help="sim_mode" aria-label="Help: simulation mode">?</button>
+                            </div>
                             <select id="sim-mode">
                                 <option value="constant">Constant Temperature</option>
                                 <option value="replica">Replica Exchange</option>
@@ -70,7 +121,10 @@
                         </div>
 
                         <div class="config-group">
-                            <label for="duration">Duration (steps)</label>
+                            <div class="label-with-help">
+                                <label for="duration">Duration (steps)</label>
+                                <button type="button" class="help-btn" data-help="duration_steps" aria-label="Help: duration">?</button>
+                            </div>
                             <div class="slider-container">
                                 <input type="range" id="duration" min="100" max="10000" step="100" value="1000">
                                 <span class="slider-value" id="duration-value">1000</span>
@@ -81,7 +135,10 @@
                         </div>
 
                         <div class="config-group">
-                            <label for="frame-interval">Frame Interval</label>
+                            <div class="label-with-help">
+                                <label for="frame-interval">Frame interval</label>
+                                <button type="button" class="help-btn" data-help="frame_interval" aria-label="Help: frame interval">?</button>
+                            </div>
                             <div class="slider-container">
                                 <input type="range" id="frame-interval" min="10" max="200" step="10" value="50">
                                 <span class="slider-value" id="frame-value">50</span>
@@ -94,10 +151,12 @@
 
                     <!-- Constant Temperature Parameters -->
                     <div id="const-temp-params" class="temp-params">
-                        <h3>Temperature Settings</h3>
                         <div class="config-grid">
                             <div class="config-group">
-                                <label for="temperature">Temperature</label>
+                                <div class="label-with-help">
+                                    <label for="temperature">Temperature</label>
+                                    <button type="button" class="help-btn" data-help="temperature_reduced" aria-label="Help: temperature">?</button>
+                                </div>
                                 <div class="slider-container">
                                     <input type="range" id="temperature" min="0.5" max="1.5" step="0.1" value="0.8">
                                     <span class="slider-value" id="temp-value">0.8</span>
@@ -111,7 +170,10 @@
 
                     <!-- Replica Exchange Parameters -->
                     <div id="replica-params" class="temp-params hidden">
-                        <h3>Replica Exchange Settings</h3>
+                        <h3 class="subsection-title">
+                            Replica exchange settings
+                            <button type="button" class="help-btn help-btn--inline" data-help="replica_exchange" aria-label="Help">?</button>
+                        </h3>
                         <div class="config-grid">
                             <div class="config-group">
                                 <label for="n-replicas">Number of Replicas</label>
@@ -164,15 +226,35 @@
             <!-- Card 4: Pulling Simulation -->
             <div class="card" id="pulling-card">
                 <div class="card-header">
-                    <h2>4. Pulling Simulation</h2>
+                    <div class="card-title-group">
+                        <h2 id="card-pulling">4. Pulling</h2>
+                        <button type="button" class="help-btn" data-help="pulling_overview" aria-label="Help: pulling">?</button>
+                    </div>
                     <label class="card-toggle">
                         <input type="checkbox" id="enable-pulling">
                         <span>Enable Pulling</span>
                     </label>
                 </div>
                 <div class="card-content" id="pulling-content">
-                    <div class="pulling-setup">
-                        <h3>AFM Configuration</h3>
+                    <div class="config-grid">
+                        <div class="config-group">
+                            <div class="label-with-help">
+                                <label for="pulling-mode">Pulling mode</label>
+                                <button type="button" class="help-btn" data-help="pulling_mode" aria-label="Help: pulling mode">?</button>
+                            </div>
+                            <select id="pulling-mode">
+                                <option value="velocity">Velocity Clamp (AFM-style)</option>
+                                <option value="tension">Constant Tension (centrifuge-style)</option>
+                            </select>
+                            <p class="param-description" id="pulling-mode-description">
+                                Velocity clamp pulls a residue at constant speed; force builds up over time.
+                                Constant tension applies a fixed force directly - matches the centrifuge experiment.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="pulling-setup" id="afm-setup">
+                        <h3>AFM Configuration (velocity clamp)</h3>
                         <div class="afm-entries" id="afm-entries">
                             <div class="afm-entry">
                                 <div class="afm-entry-header">
@@ -213,13 +295,115 @@
                         </div>
                         <button type="button" id="add-afm-btn" class="add-btn">Add AFM Point</button>
                     </div>
+
+                    <div class="pulling-setup hidden" id="tension-setup">
+                        <h3>Tension Configuration (constant force)</h3>
+                        <p class="param-description">
+                            Apply equal-and-opposite forces at two residues. Forces are in Upside
+                            reduced units (kT / Å); the force-sweep mode below converts piconewtons
+                            for you.
+                        </p>
+                        <div class="tension-entries" id="tension-entries">
+                            <div class="afm-entry">
+                                <div class="afm-entry-header"><h4>Tension Point 1</h4></div>
+                                <div class="afm-content">
+                                    <div class="afm-row">
+                                        <div class="afm-field">
+                                            <label>Residue</label>
+                                            <input type="number" class="tension-residue" min="0" value="0">
+                                        </div>
+                                        <div class="afm-field">
+                                            <label>Tension (tx, ty, tz) - kT/A</label>
+                                            <div class="xyz-compact">
+                                                <input type="number" class="tension-tx" step="0.01" value="0">
+                                                <input type="number" class="tension-ty" step="0.01" value="0">
+                                                <input type="number" class="tension-tz" step="0.01" value="-0.5">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="remove-tension-btn">Remove</button>
+                                </div>
+                            </div>
+                        </div>
+                        <button type="button" id="add-tension-btn" class="add-btn">Add Tension Point</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 4b: Force Sweep (Phase 1) -->
+            <div class="card" id="sweep-card">
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <h2 id="card-sweep">4b. Force sweep</h2>
+                        <button type="button" class="help-btn" data-help="force_sweep" aria-label="Help: force sweep">?</button>
+                    </div>
+                    <label class="card-toggle">
+                        <input type="checkbox" id="enable-sweep">
+                        <span>Enable Sweep</span>
+                    </label>
+                </div>
+                <div class="card-content" id="sweep-content">
+                    <p class="param-description">
+                        Run the same simulation at N forces in parallel and roll up
+                        cryptic-epitope candidates. Replaces single pulling jobs when enabled.
+                    </p>
+                    <div class="config-grid">
+                        <div class="config-group">
+                            <div class="label-with-help">
+                                <label for="sweep-mode">Sub-simulation type</label>
+                                <button type="button" class="help-btn" data-help="sweep_subsim" aria-label="Help: sweep type">?</button>
+                            </div>
+                            <select id="sweep-mode">
+                                <option value="tension">Constant Tension</option>
+                                <option value="velocity">Velocity Clamp</option>
+                            </select>
+                        </div>
+                        <div class="config-group">
+                            <div class="label-with-help">
+                                <label for="sweep-forces">Forces (pN, comma-separated)</label>
+                                <button type="button" class="help-btn" data-help="sweep_forces_pn" aria-label="Help: forces in pN">?</button>
+                            </div>
+                            <input type="text" id="sweep-forces" value="14,18,22,26,30,34,38">
+                            <p class="param-description">Linear force ladder across the centrifuge's accessible range.</p>
+                        </div>
+                        <div class="config-group">
+                            <label for="sweep-replicas">Replicas per force</label>
+                            <input type="number" id="sweep-replicas" min="1" max="8" value="2">
+                        </div>
+                        <div class="config-group">
+                            <label for="sweep-anchor">Anchor residue</label>
+                            <input type="number" id="sweep-anchor" min="0" value="0">
+                        </div>
+                        <div class="config-group">
+                            <label for="sweep-puller">Pull residue (-1 = last)</label>
+                            <input type="number" id="sweep-puller" value="-1">
+                        </div>
+                    </div>
+                    <div id="sweep-progress" class="hidden">
+                        <h3>Sub-job progress</h3>
+                        <div class="progress-bar">
+                            <div id="sweep-progress-fill" class="progress-fill"></div>
+                        </div>
+                        <div id="sweep-progress-text" class="progress-text">Queued...</div>
+                    </div>
+                    <div id="sweep-results" class="hidden">
+                        <h3>Sweep results</h3>
+                        <button id="run-sweep-analysis-btn" type="button" class="run-button">
+                            <span class="btn-text">Compute Epitope Candidates</span>
+                            <div class="spinner hidden"></div>
+                        </button>
+                        <div id="sweep-analysis-results" class="analysis-results"></div>
+                    </div>
                 </div>
             </div>
 
             <!-- Card 5: Membrane System -->
             <div class="card" id="membrane-card">
                 <div class="card-header">
-                    <h2>5. Membrane System</h2>
+                    <div class="card-title-group">
+                        <h2>5. Membrane</h2>
+                        <button type="button" class="help-btn" data-help="membrane" aria-label="Help: membrane">?</button>
+                    </div>
                     <label class="card-toggle">
                         <input type="checkbox" id="enable-membrane">
                         <span>Enable Membrane</span>
@@ -280,7 +464,10 @@
             <!-- Card 6: Restraint Groups/Restraints -->
             <div class="card" id="restraints-card">
                 <div class="card-header">
-                    <h2>6. Restraint Groups/Restraints</h2>
+                    <div class="card-title-group">
+                        <h2>6. Restraints</h2>
+                        <button type="button" class="help-btn" data-help="restraints" aria-label="Help: restraints">?</button>
+                    </div>
                     <label class="card-toggle">
                         <input type="checkbox" id="enable-restraints">
                         <span>Enable Restraints</span>
@@ -359,7 +546,10 @@
             <!-- Run Section -->
             <div class="card" id="run-card">
                 <div class="card-header">
-                    <h2>7. Run Simulation</h2>
+                    <div class="card-title-group">
+                        <h2 id="card-run">7. Run</h2>
+                        <button type="button" class="help-btn" data-help="run_simulation" aria-label="Help: run">?</button>
+                    </div>
                 </div>
                 <div class="card-content">
                     <div class="run-preview">
@@ -377,7 +567,10 @@
 
             <!-- Progress Section -->
             <div id="progress-section" class="progress-section hidden">
-                <h2>Progress</h2>
+                <div class="section-heading">
+                    <h2>Progress</h2>
+                    <button type="button" class="help-btn" data-help="progress_tracking" aria-label="Help: progress">?</button>
+                </div>
                 <div class="progress-bar">
                     <div id="progress-fill" class="progress-fill"></div>
                 </div>
@@ -394,7 +587,10 @@
 
             <!-- Results Section -->
             <div id="results-section" class="results-section hidden">
-                <h2>Results</h2>
+                <div class="section-heading">
+                    <h2>Results</h2>
+                    <button type="button" class="help-btn" data-help="results_download" aria-label="Help: results">?</button>
+                </div>
                 <div class="results-grid">
                     <div class="result-card">
                         <h3>Trajectory</h3>
@@ -412,67 +608,127 @@
 
             <!-- Analysis Section -->
             <div id="analysis-section" class="results-section hidden">
-                <h2>Post-Processing Analysis</h2>
+                <div class="section-heading">
+                    <h2 id="card-analysis">Post-processing analysis</h2>
+                    <button type="button" class="help-btn" data-help="post_analysis_overview" aria-label="Help: analysis">?</button>
+                </div>
                 <p class="param-description">
                     Choose which analyses to run on the completed trajectory. Each
                     selected analysis loads the trajectory and produces a plot you can
                     inspect inline or download as a PNG.
                 </p>
                 <div class="analysis-options">
-                    <label class="checkbox-label">
-                        <input type="checkbox" name="analysis" value="rg" checked>
-                        <span><strong>Radius of gyration</strong> &mdash; protein compactness vs. time</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" name="analysis" value="rmsd" checked>
-                        <span><strong>RMSD</strong> &mdash; deviation from the starting structure</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" name="analysis" value="rmsf" checked>
-                        <span><strong>Per-residue RMSF</strong> &mdash; which residues flex the most</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" name="analysis" value="e2e" checked>
-                        <span><strong>End-to-end distance</strong> &mdash; chain extension over time (great for pulling)</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" name="analysis" value="hbonds">
-                        <span><strong>Hydrogen bonds</strong> &mdash; backbone H-bond count per frame</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" name="analysis" value="salt_bridges">
-                        <span><strong>Salt bridges</strong> &mdash; CB-CB ionic contacts (coarse-grained proxy)</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" name="analysis" value="shape">
-                        <span><strong>Shape descriptors</strong> &mdash; asphericity &amp; anisotropy from the gyration tensor</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" name="analysis" value="cross_corr">
-                        <span><strong>Cross-correlation</strong> &mdash; coupled vs. anti-correlated residue motions</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" name="analysis" value="ss">
-                        <span><strong>Secondary structure</strong> &mdash; per-residue helix/sheet/coil (uses DSSP if installed, pure-Python fallback otherwise)</span>
-                    </label>
-                    <label class="checkbox-label analysis-pca-row">
-                        <input type="checkbox" name="analysis" value="pca">
-                        <span>
-                            <strong>PCA</strong> &mdash; principal component analysis on CA coordinates
-                            <span class="pca-config">
-                                <label for="pca-n-components">Components:</label>
-                                <input type="number" id="pca-n-components" min="1" max="20" step="1" value="2">
+                    <div class="analysis-option-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="rg" checked>
+                            <span><strong>Rg</strong> — compactness vs. time</span>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_rg" aria-label="Help: Rg">?</button>
+                    </div>
+                    <div class="analysis-option-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="rmsd" checked>
+                            <span><strong>RMSD</strong> — deviation from start</span>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_rmsd" aria-label="Help: RMSD">?</button>
+                    </div>
+                    <div class="analysis-option-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="rmsf" checked>
+                            <span><strong>RMSF</strong> — per-residue flexibility</span>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_rmsf" aria-label="Help: RMSF">?</button>
+                    </div>
+                    <div class="analysis-option-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="e2e" checked>
+                            <span><strong>End-to-end</strong> — chain stretch (pulling)</span>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_e2e" aria-label="Help: end-to-end">?</button>
+                    </div>
+                    <div class="analysis-option-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="hbonds">
+                            <span><strong>H-bonds</strong> — backbone hydrogen bonds</span>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_hbonds" aria-label="Help: H-bonds">?</button>
+                    </div>
+                    <div class="analysis-option-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="salt_bridges">
+                            <span><strong>Salt bridges</strong> — ionic contacts (CG proxy)</span>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_salt" aria-label="Help: salt bridges">?</button>
+                    </div>
+                    <div class="analysis-option-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="shape">
+                            <span><strong>Shape</strong> — gyration tensor shape</span>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_shape" aria-label="Help: shape">?</button>
+                    </div>
+                    <div class="analysis-option-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="cross_corr">
+                            <span><strong>Cross-corr</strong> — coupled motions</span>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_crosscorr" aria-label="Help: cross-correlation">?</button>
+                    </div>
+                    <div class="analysis-option-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="ss">
+                            <span><strong>Secondary structure</strong> — DSSP or fallback</span>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_ss" aria-label="Help: secondary structure">?</button>
+                    </div>
+                    <div class="analysis-option-row analysis-option-row--pca">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="pca">
+                            <span>
+                                <strong>PCA</strong> — collective motions
+                                <span class="pca-config">
+                                    <label for="pca-n-components">Components:</label>
+                                    <input type="number" id="pca-n-components" min="1" max="20" step="1" value="2">
+                                </span>
                             </span>
-                        </span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" name="analysis" value="force_ext">
-                        <span><strong>Force vs. extension</strong> &mdash; pulling-only; reconstructs force from spring positions</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" name="analysis" value="contacts">
-                        <span><strong>Contact map</strong> &mdash; residue-residue contact frequencies (slowest)</span>
-                    </label>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_pca" aria-label="Help: PCA">?</button>
+                    </div>
+                    <div class="analysis-option-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="force_ext">
+                            <span><strong>Force vs. extension</strong> — pulling runs</span>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_force_ext" aria-label="Help: force-extension">?</button>
+                    </div>
+                    <div class="analysis-option-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="contacts">
+                            <span><strong>Contact map</strong> — pair frequencies (slower)</span>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_contacts" aria-label="Help: contacts">?</button>
+                    </div>
+                    <div class="analysis-option-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="burial_scan">
+                            <span><strong>Burial scan</strong> — exposure under tension</span>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_burial" aria-label="Help: burial scan">?</button>
+                    </div>
+                    <div class="analysis-option-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="dihedral">
+                            <span><strong>Dihedral unfolding</strong> — φ/ψ basin drift</span>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_dihedral" aria-label="Help: dihedrals">?</button>
+                    </div>
+                    <div class="analysis-option-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="analysis" value="intermediates">
+                            <span><strong>Clustering</strong> — save rep PDBs to <code>intermediates/</code></span>
+                        </label>
+                        <button type="button" class="help-btn help-btn--inline" data-help="analysis_cluster" aria-label="Help: clustering">?</button>
+                    </div>
                 </div>
                 <button id="run-analysis-btn" class="run-button">
                     <span class="btn-text">Run Analysis</span>
@@ -481,7 +737,176 @@
                 <div id="analysis-status" class="param-description"></div>
                 <div id="analysis-results" class="analysis-results"></div>
             </div>
+
+            <!-- Phase 2: Back-mapping -->
+            <div id="backmap-section" class="results-section hidden">
+                <div class="section-heading">
+                    <h2>All-atom back-mapping</h2>
+                    <button type="button" class="help-btn" data-help="backmapping" aria-label="Help: back-mapping">?</button>
+                </div>
+                <p class="param-description">
+                    Reconstruct full all-atom structures from the coarse-grained intermediates
+                    saved during clustering. Required input for AI binder design (Phase 3).
+                    Uses PULCHRA + an optional OpenMM minimisation.
+                </p>
+                <div id="intermediates-list" class="param-description">No intermediates yet.</div>
+                <button id="run-backmap-btn" type="button" class="run-button">
+                    <span class="btn-text">Back-map intermediates</span>
+                    <div class="spinner hidden"></div>
+                </button>
+                <div id="backmap-status" class="param-description"></div>
+                <div id="backmapped-list" class="param-description"></div>
+            </div>
+
+            <!-- Phase 3: AI Design -->
+            <div id="design-section" class="results-section hidden">
+                <div class="section-heading">
+                    <h2>AI nanobody design</h2>
+                    <button type="button" class="help-btn" data-help="ai_design" aria-label="Help: AI design">?</button>
+                </div>
+                <p class="param-description">
+                    Submit a back-mapped intermediate to Tamarind Bio's RFdiffusion -> ProteinMPNN
+                    -> AlphaFold-Multimer pipeline. Returns ranked binder candidates by ipTM score.
+                </p>
+                <div class="config-grid">
+                    <div class="config-group">
+                        <div class="label-with-help">
+                            <label for="design-intermediate">Intermediate state</label>
+                            <button type="button" class="help-btn" data-help="design_intermediate" aria-label="Help">?</button>
+                        </div>
+                        <select id="design-intermediate"></select>
+                        <p class="param-description">
+                            Pick the back-mapped (all-atom) intermediate to design against.
+                        </p>
+                    </div>
+                    <div class="config-group">
+                        <div class="label-with-help">
+                            <label for="design-hotspots">Hotspot residues (comma-separated)</label>
+                            <button type="button" class="help-btn" data-help="design_hotspots" aria-label="Help">?</button>
+                        </div>
+                        <input type="text" id="design-hotspots" placeholder="e.g. 42,43,44">
+                        <p class="param-description">
+                            From the epitope-candidates rollup; focuses the binder there.
+                        </p>
+                    </div>
+                    <div class="config-group">
+                        <div class="label-with-help">
+                            <label for="design-n-designs">Number of backbones</label>
+                            <button type="button" class="help-btn" data-help="design_n_backbones" aria-label="Help">?</button>
+                        </div>
+                        <input type="number" id="design-n-designs" min="1" max="500" value="50">
+                    </div>
+                    <div class="config-group">
+                        <label for="design-binder-length">Binder length (residues)</label>
+                        <input type="number" id="design-binder-length" min="40" max="200" value="100">
+                    </div>
+                    <div class="config-group">
+                        <label for="design-n-seqs">MPNN sequences per backbone</label>
+                        <input type="number" id="design-n-seqs" min="1" max="32" value="8">
+                    </div>
+                    <div class="config-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="design-use-mock">
+                            <span>Use mock client (offline / testing)</span>
+                        </label>
+                    </div>
+                </div>
+                <button id="run-design-btn" type="button" class="run-button">
+                    <span class="btn-text">Run Design Pipeline</span>
+                    <div class="spinner hidden"></div>
+                </button>
+                <div id="design-status" class="param-description"></div>
+                <div id="design-results" class="analysis-results"></div>
+            </div>
+
+            <!-- Phase 4: Centrifuge experiment -->
+            <div id="experimental-section" class="results-section hidden">
+                <div class="section-heading">
+                    <h2>Centrifuge experiment &amp; comparison</h2>
+                    <button type="button" class="help-btn" data-help="centrifuge_experiment" aria-label="Help: experiments">?</button>
+                </div>
+                <p class="param-description">
+                    Generate the bench-ready centrifuge protocol that maps wet-lab radial
+                    zones to the predicted exposure forces. Then upload the wet-lab CSV to
+                    overlay the experiment on the Upside prediction.
+                </p>
+                <div class="config-grid">
+                    <div class="config-group">
+                        <div class="label-with-help">
+                            <label for="exp-zones">Number of radial zones</label>
+                            <button type="button" class="help-btn" data-help="exp_zones" aria-label="Help">?</button>
+                        </div>
+                        <input type="number" id="exp-zones" min="1" max="20" value="10">
+                    </div>
+                    <div class="config-group">
+                        <label for="exp-force-low">Force range low (pN)</label>
+                        <input type="number" id="exp-force-low" min="1" max="200" value="14">
+                    </div>
+                    <div class="config-group">
+                        <label for="exp-force-high">Force range high (pN)</label>
+                        <input type="number" id="exp-force-high" min="1" max="200" value="38">
+                    </div>
+                    <div class="config-group">
+                        <label for="exp-thresholds">Predicted thresholds (pN)</label>
+                        <input type="text" id="exp-thresholds" placeholder="e.g. 18.5,26.4">
+                    </div>
+                    <div class="config-group">
+                        <label for="exp-attachment">Attachment chemistry</label>
+                        <select id="exp-attachment">
+                            <option value="his-tag">His-tag / Ni-NTA</option>
+                            <option value="biotin-streptavidin">Biotin / Streptavidin</option>
+                            <option value="click">SpyTag/SpyCatcher (click)</option>
+                        </select>
+                    </div>
+                </div>
+                <button id="make-design-sheet-btn" type="button" class="run-button">
+                    <span class="btn-text">Generate experiment sheet</span>
+                    <div class="spinner hidden"></div>
+                </button>
+                <div id="exp-design-status" class="param-description"></div>
+                <pre id="exp-design-output" class="config-summary hidden"></pre>
+
+                <h3 class="subsection-title">
+                    Wet-lab data
+                    <button type="button" class="help-btn help-btn--inline" data-help="wetlab_csv" aria-label="Help: CSV format">?</button>
+                </h3>
+                <p class="param-description">
+                    CSV must have columns: <code>force_pN, fluorescence, replicate, condition</code>.
+                    Conditions of interest: <code>primary, no-spin, scrambled-cdr, disulfide-stapled</code>.
+                </p>
+                <input type="file" id="wetlab-csv" accept=".csv">
+                <div id="wetlab-upload-status" class="param-description"></div>
+
+                <div class="config-grid">
+                    <div class="config-group">
+                        <div class="label-with-help">
+                            <label for="wetlab-pred-threshold">Predicted activation threshold (pN)</label>
+                            <button type="button" class="help-btn" data-help="pred_threshold_pn" aria-label="Help">?</button>
+                        </div>
+                        <input type="number" id="wetlab-pred-threshold" step="0.1" placeholder="e.g. 22.0">
+                    </div>
+                </div>
+                <button id="run-comparison-btn" type="button" class="run-button">
+                    <span class="btn-text">Compare prediction vs. experiment</span>
+                    <div class="spinner hidden"></div>
+                </button>
+                <div id="comparison-status" class="param-description"></div>
+                <div id="comparison-results" class="analysis-results"></div>
+            </div>
+
         </main>
+    </div>
+
+    <!-- Context help (?) modals -->
+    <div id="help-modal" class="help-modal hidden" role="dialog" aria-modal="true" aria-labelledby="help-modal-title" aria-hidden="true">
+        <div class="help-modal__backdrop" data-close-help tabindex="-1"></div>
+        <div class="help-modal__panel">
+            <div class="help-modal__header">
+                <h2 id="help-modal-title" class="help-modal__title">Help</h2>
+                <button type="button" class="help-modal__close" id="help-modal-close" aria-label="Close help">&times;</button>
+            </div>
+            <div id="help-modal-body" class="help-modal__body"></div>
+        </div>
     </div>
 
     <script src="script.js"></script>

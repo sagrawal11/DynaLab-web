@@ -1,5 +1,8 @@
-document.addEventListener('DOMContentLoaded', function() {
-    // Get all form elements
+// Frontend logic for the DynaLab intermediate UI.
+// Talks to the Flask backend in web/server/app.py via /api/* JSON endpoints.
+
+document.addEventListener('DOMContentLoaded', function () {
+    // ----- Element handles -----
     const pdbFileInput = document.getElementById('pdb-file');
     const fileInfo = document.getElementById('file-info');
     const userName = document.getElementById('user-name');
@@ -27,186 +30,380 @@ document.addEventListener('DOMContentLoaded', function() {
     const analysisResultsEl = document.getElementById('analysis-results');
     const modeDescription = document.getElementById('mode-description');
 
-    let currentJobId = null;
-
-    // Get card elements and toggles
     const constTempParams = document.getElementById('const-temp-params');
     const replicaParams = document.getElementById('replica-params');
     const enablePulling = document.getElementById('enable-pulling');
     const pullingContent = document.getElementById('pulling-content');
+    const pullingMode = document.getElementById('pulling-mode');
+    const afmSetup = document.getElementById('afm-setup');
+    const tensionSetup = document.getElementById('tension-setup');
     const enableMembrane = document.getElementById('enable-membrane');
     const membraneContent = document.getElementById('membrane-content');
     const enableRestraints = document.getElementById('enable-restraints');
     const restraintsContent = document.getElementById('restraints-content');
-
-    // Get restraint text areas
     const wallConstText = document.getElementById('wall-const-text');
     const wallPairText = document.getElementById('wall-pair-text');
     const springConstText = document.getElementById('spring-const-text');
     const springPairText = document.getElementById('spring-pair-text');
     const nailText = document.getElementById('nail-text');
-
-    // Get add buttons
     const addAfmBtn = document.getElementById('add-afm-btn');
+    const addTensionBtn = document.getElementById('add-tension-btn');
+
+    // Sweep
+    const enableSweep = document.getElementById('enable-sweep');
+    const sweepContent = document.getElementById('sweep-content');
+    const sweepMode = document.getElementById('sweep-mode');
+    const sweepForces = document.getElementById('sweep-forces');
+    const sweepReplicas = document.getElementById('sweep-replicas');
+    const sweepAnchor = document.getElementById('sweep-anchor');
+    const sweepPuller = document.getElementById('sweep-puller');
+    const sweepProgress = document.getElementById('sweep-progress');
+    const sweepProgressFill = document.getElementById('sweep-progress-fill');
+    const sweepProgressText = document.getElementById('sweep-progress-text');
+    const sweepResultsEl = document.getElementById('sweep-results');
+    const runSweepAnalysisBtn = document.getElementById('run-sweep-analysis-btn');
+    const sweepAnalysisResults = document.getElementById('sweep-analysis-results');
+
+    // Backmap
+    const backmapSection = document.getElementById('backmap-section');
+    const intermediatesList = document.getElementById('intermediates-list');
+    const runBackmapBtn = document.getElementById('run-backmap-btn');
+    const backmapStatus = document.getElementById('backmap-status');
+    const backmappedList = document.getElementById('backmapped-list');
+
+    // Design
+    const designSection = document.getElementById('design-section');
+    const designIntermediate = document.getElementById('design-intermediate');
+    const designHotspots = document.getElementById('design-hotspots');
+    const designNDesigns = document.getElementById('design-n-designs');
+    const designBinderLength = document.getElementById('design-binder-length');
+    const designNSeqs = document.getElementById('design-n-seqs');
+    const designUseMock = document.getElementById('design-use-mock');
+    const runDesignBtn = document.getElementById('run-design-btn');
+    const designStatus = document.getElementById('design-status');
+    const designResults = document.getElementById('design-results');
+
+    // Experimental
+    const experimentalSection = document.getElementById('experimental-section');
+    const expZones = document.getElementById('exp-zones');
+    const expForceLow = document.getElementById('exp-force-low');
+    const expForceHigh = document.getElementById('exp-force-high');
+    const expThresholds = document.getElementById('exp-thresholds');
+    const expAttachment = document.getElementById('exp-attachment');
+    const makeDesignSheetBtn = document.getElementById('make-design-sheet-btn');
+    const expDesignStatus = document.getElementById('exp-design-status');
+    const expDesignOutput = document.getElementById('exp-design-output');
+    const wetlabCsv = document.getElementById('wetlab-csv');
+    const wetlabUploadStatus = document.getElementById('wetlab-upload-status');
+    const wetlabPredThreshold = document.getElementById('wetlab-pred-threshold');
+    const runComparisonBtn = document.getElementById('run-comparison-btn');
+    const comparisonStatus = document.getElementById('comparison-status');
+    const comparisonResults = document.getElementById('comparison-results');
+
+    // Settings
+    const openSettingsBtn = document.getElementById('open-settings-btn');
+    const settingsDialog = document.getElementById('settings-dialog');
+    const settingsCloseBtn = document.getElementById('settings-close-btn');
+    const settingsSaveBtn = document.getElementById('settings-save-btn');
+    const tamarindApiKey = document.getElementById('tamarind-api-key');
+    const tamarindEndpoint = document.getElementById('tamarind-endpoint');
+    const settingsStatus = document.getElementById('settings-status');
+
+    const helpModal = document.getElementById('help-modal');
+    const helpModalTitle = document.getElementById('help-modal-title');
+    const helpModalBody = document.getElementById('help-modal-body');
+    const helpModalClose = document.getElementById('help-modal-close');
+
+    /**
+     * Context help copy for (?) buttons — keyed by data-help on the button.
+     */
+    const HELP_CONTENT = {
+        settings_tamarind: {
+            title: 'Tamarind Bio API key',
+            html: `<p>Tamarind hosts a cloud pipeline that runs <strong>RFdiffusion</strong>, <strong>ProteinMPNN</strong>, and <strong>AlphaFold-Multimer</strong>-style scoring so you get ranked nanobody-style binder candidates.</p><p>The key is stored only in <code>web/server/.env</code> on your machine (gitignored). Without a key, use the mock client in the design card to test the UI without API calls.</p>`,
+        },
+        settings_endpoint: {
+            title: 'API endpoint',
+            html: `<p>Base URL for Tamarind’s REST API. Leave the default unless Tamarind support gives you a different host.</p>`,
+        },
+        upload_pdb: {
+            title: 'Structure upload',
+            html: `<p>A <strong>PDB file</strong> lists 3D coordinates for your protein. Upside uses it as the starting geometry for the simulation.</p><p>Use a clean single-chain model when possible. The backend runs Upside preparation and MD on the machine where Flask is running.</p>`,
+        },
+        contact_details: {
+            title: 'Contact information',
+            html: `<p>Optional metadata for who ran the job. It does not change the physics—useful if you share the server or keep lab notes alongside downloads.</p>`,
+        },
+        basic_simulation: {
+            title: 'Basic simulation',
+            html: `<p>Controls how long the run is, how often snapshots are saved, and whether you stay at one temperature or use <strong>replica exchange</strong> (several temperatures with swaps) for broader sampling.</p><p>Upside uses <strong>reduced units</strong> internally; temperature and duration are not literal Kelvin or nanoseconds until you interpret them with the force-field documentation.</p>`,
+        },
+        sim_mode: {
+            title: 'Simulation mode',
+            html: `<p><strong>Constant temperature</strong>: one thermostat, standard MD.</p><p><strong>Replica exchange</strong>: multiple copies of the system at different temperatures periodically attempt swaps—helps cross energy barriers without cranking one run to unrealistic heat.</p>`,
+        },
+        duration_steps: {
+            title: 'Duration (steps)',
+            html: `<p>Total integration steps. More steps mean longer simulation time and more exploration; very short runs are only useful for smoke tests.</p>`,
+        },
+        frame_interval: {
+            title: 'Frame interval',
+            html: `<p>Save a trajectory snapshot every <em>N</em> steps. Smaller intervals give smoother movies and analyses but larger <code>.up</code> files and slower post-processing.</p>`,
+        },
+        temperature_reduced: {
+            title: 'Temperature',
+            html: `<p>Thermostat setting in Upside’s <strong>reduced</strong> unit system (not plain Kelvin). Higher values add kinetic energy and can promote unfolding; lower values keep the structure tighter.</p>`,
+        },
+        replica_exchange: {
+            title: 'Replica exchange',
+            html: `<p>Multiple simulations run in parallel at different temperatures and periodically attempt to swap coordinates. Low replicas explore physically, high replicas help hop barriers; combined, you get better sampling than one very hot run.</p><p><strong>Replica interval</strong> is how often swap moves are proposed.</p>`,
+        },
+        pulling_overview: {
+            title: 'Pulling',
+            html: `<p>Apply external forces to mimic <strong>AFM</strong>, <strong>optical tweezers</strong>, or <strong>centrifuge</strong>-style loading. Use this when you care about partially unfolded states or cryptic epitopes exposed under tension.</p><p>Enable pulling only when your science question needs it—plain MD is simpler when you don’t.</p>`,
+        },
+        pulling_mode: {
+            title: 'Pulling mode',
+            html: `<p><strong>Velocity clamp (AFM-style)</strong>: a spring-connected tip moves at fixed velocity; force rises as the chain resists.</p><p><strong>Constant tension</strong>: target force is applied more directly—closer to how you think about a fixed pN load in a centrifuge lane after calibration.</p>`,
+        },
+        force_sweep: {
+            title: 'Force sweep',
+            html: `<p>Runs many simulations at different target forces (in <strong>piconewtons</strong> after calibration) so you can see which residues become exposed only past a threshold. That is the computational analog of your multi-force centrifuge tube.</p><p>When sweep is enabled, it orchestrates sub-jobs instead of a single pull from card 4.</p>`,
+        },
+        sweep_subsim: {
+            title: 'Sub-simulation type',
+            html: `<p>Same choices as single pulling: constant tension vs velocity clamp, applied inside each sub-job of the sweep.</p>`,
+        },
+        sweep_forces_pn: {
+            title: 'Forces (pN)',
+            html: `<p>Comma-separated list of forces in <strong>piconewtons</strong>. The backend converts to Upside units using your calibration (default factor documented in the force-calibration module).</p><p>Example ladder: <code>14,18,22,26,30,34,38</code> pN across lanes or time points.</p>`,
+        },
+        membrane: {
+            title: 'Membrane',
+            html: `<p>Add implicit membrane boundaries so transmembrane proteins see the right environment. Enable only for membrane systems; adjust inner/outer limits to sandwich the bilayer region.</p>`,
+        },
+        restraints: {
+            title: 'Restraints',
+            html: `<p>Pin atoms or pairs with springs or walls—e.g. staple terminal ends, keep a domain fixed, or mimic attachment chemistry. Formats match Upside’s text tables consumed by the preparation scripts.</p>`,
+        },
+        run_simulation: {
+            title: 'Run',
+            html: `<p>Starts the job on the Flask host: builds the Upside config, runs the binary, and writes logs under <code>web/server/jobs/&lt;id&gt;/</code>. You need name, email (as before), and a PDB selected.</p><p>If <strong>force sweep</strong> is enabled, this button launches the sweep orchestrator instead of one plain job.</p>`,
+        },
+        progress_tracking: {
+            title: 'Progress',
+            html: `<p>Progress is parsed from the simulation log: step count vs target and rough status. Large runs can take a long time—the bar advances when the engine reports new steps.</p>`,
+        },
+        results_download: {
+            title: 'Results',
+            html: `<p>When the run finishes you can download the main trajectory (<code>.up</code> / HDF5). Use that file for the analysis checkboxes below.</p>`,
+        },
+        post_analysis_overview: {
+            title: 'Post-processing analysis',
+            html: `<p>Each analysis reloads the trajectory (or reads sweep folders) and writes PNG plots plus JSON stats. Pick only what you need—contact maps and clustering are heavier than Rg or RMSD.</p><p>These explain mechanics and exposure; they are not a substitute for wet-lab binding validation.</p>`,
+        },
+        analysis_rg: {
+            title: 'Radius of gyration (Rg)',
+            html: `<p>Rg measures how compact the protein is. It grows when the chain expands or unfolds—useful for detecting global unfolding under pull.</p>`,
+        },
+        analysis_rmsd: {
+            title: 'RMSD',
+            html: `<p>Root-mean-square deviation of current structure from the first frame. Rises when the fold drifts or partially unfolds.</p>`,
+        },
+        analysis_rmsf: {
+            title: 'RMSF',
+            html: `<p>Per-residue fluctuation around the average structure—peaks highlight flexible loops or regions that disorder under force.</p>`,
+        },
+        analysis_e2e: {
+            title: 'End-to-end distance',
+            html: `<p>Distance between first and last Cα. For single-domain chains it tracks extension along the pull direction when tension grows.</p>`,
+        },
+        analysis_hbonds: {
+            title: 'Hydrogen bonds',
+            html: `<p>Counts backbone hydrogen bonds per frame (Baker–Hubbard). Drops often track loss of secondary structure during unfolding.</p>`,
+        },
+        analysis_salt: {
+            title: 'Salt bridges',
+            html: `<p>Approximates ionic contacts using Cβ–Cβ distances—a coarse-grained friendly proxy, not a full all-atom salt-bridge energy.</p>`,
+        },
+        analysis_shape: {
+            title: 'Shape descriptors',
+            html: `<p>Asphericity, acylindricity, and anisotropy from the gyration tensor. Elongated states under tension look different from compact globules.</p>`,
+        },
+        analysis_crosscorr: {
+            title: 'Cross-correlation',
+            html: `<p>Which residues move together vs opposite phases—helps spot allosteric coupling or mechanical propagation along the chain.</p>`,
+        },
+        analysis_ss: {
+            title: 'Secondary structure',
+            html: `<p>Assigns helix/sheet/coil per residue over time. Uses DSSP (<code>mkdssp</code>) when installed; otherwise a simplified H-bond-based fallback.</p>`,
+        },
+        analysis_pca: {
+            title: 'PCA',
+            html: `<p>Principal component analysis on Cα coordinates finds principal modes of motion. More components capture finer variance but need more interpretation; 2–3 is typical for visualization.</p>`,
+        },
+        analysis_force_ext: {
+            title: 'Force vs extension',
+            html: `<p>For pulling setups, reconstructs approximate force–extension curves from spring geometry in the trajectory and job metadata.</p>`,
+        },
+        analysis_contacts: {
+            title: 'Contact map',
+            html: `<p>Shows how often residue pairs are in contact across the trajectory. Stable cores stay dark; opening contacts appear under tension.</p><p>Computationally heavier than scalar time series.</p>`,
+        },
+        analysis_burial: {
+            title: 'Burial scan',
+            html: `<p>Tracks solvent exposure per residue over time—good for “cryptic epitope” hypotheses where burial drops only when the domain is stretched.</p>`,
+        },
+        analysis_dihedral: {
+            title: 'Dihedral unfolding',
+            html: `<p>Summarizes how Ramachandran basins change from start to end—complements DSSP for detecting local backbone rearrangements.</p>`,
+        },
+        analysis_cluster: {
+            title: 'Intermediate clustering',
+            html: `<p>Clusters frames in a contact-based feature space and exports representative PDBs to <code>intermediates/</code>. Those frames feed back-mapping and AI design.</p>`,
+        },
+        backmapping: {
+            title: 'All-atom back-mapping',
+            html: `<p>Coarse Upside outputs are not fully atomistic. <strong>PULCHRA</strong> rebuilds all heavy atoms from Cα geometry; optional OpenMM minimization can relieve clashes if installed.</p><p>Downstream binder tools expect all-atom PDBs—run this before the design card.</p>`,
+        },
+        ai_design: {
+            title: 'AI nanobody design',
+            html: `<p>Sends a back-mapped snapshot through an external diffusion + sequence-design + complex-prediction stack (Tamarind). Returns ranked candidates with confidence-style metrics.</p><p>Use the mock client for demos without billing.</p>`,
+        },
+        design_intermediate: {
+            title: 'Intermediate state',
+            html: `<p>Choose which clustered, back-mapped PDB represents the partially unfolded “target face” you want binders against.</p>`,
+        },
+        design_hotspots: {
+            title: 'Hotspot residues',
+            html: `<p>Comma-separated residue indices (often from epitope-candidate analysis) that tell the pipeline where the binder should focus contact.</p>`,
+        },
+        design_n_backbones: {
+            title: 'Number of backbones',
+            html: `<p>How many distinct scaffold backbones RFdiffusion-style sampling requests. More diversity raises cost and runtime; use small numbers while iterating.</p>`,
+        },
+        centrifuge_experiment: {
+            title: 'Centrifuge experiment design',
+            html: `<p>Generates a bench-oriented sheet mapping radial zones to force ranges, attachment chemistry notes, and predicted thresholds—bridging simulation to your wet-lab protocol.</p>`,
+        },
+        exp_zones: {
+            title: 'Radial zones',
+            html: `<p>How many discrete lanes or radii you will use in the tube or rotor—matches how you stratify g-force in the experiment.</p>`,
+        },
+        wetlab_csv: {
+            title: 'Wet-lab CSV',
+            html: `<p>Upload fluorescence or binding readouts vs force. Expected columns include <code>force_pN</code>, <code>fluorescence</code>, <code>replicate</code>, and <code>condition</code> so the server can overlay batches and controls.</p>`,
+        },
+        pred_threshold_pn: {
+            title: 'Predicted threshold (pN)',
+            html: `<p>The force where your computational pipeline predicts epitope exposure or binding onset—drawn on the comparison plot against measured fluorescence.</p>`,
+        },
+    };
 
     let selectedFile = null;
+    let currentJobId = null;
+    let currentSweepId = null;
+    let lastWetlabFilename = null;
     let currentConfig = {};
 
     const modeDescriptions = {
-        'constant': 'Standard molecular dynamics at constant temperature.',
-        'replica': 'Replica exchange MD for enhanced sampling across temperature range.'
+        constant: 'Standard molecular dynamics at constant temperature.',
+        replica:  'Replica exchange MD for enhanced sampling across temperature range.',
     };
 
-    // Initialize UI
+    init();
+
+    // -------------------------------------------------------------------
+    // Initialisation
+    // -------------------------------------------------------------------
+    function init() {
     updateSliderValues();
     updateConfigSummary();
     updateCardVisibility();
     setupEventListeners();
+        loadSettingsStatus();
+        setupHelpModal();
+    }
 
     function setupEventListeners() {
-        // File upload handling
         pdbFileInput.addEventListener('change', handleFileUpload);
-
-        // Contact details
         userName.addEventListener('input', updateConfigSummary);
         userEmail.addEventListener('input', updateConfigSummary);
         userName.addEventListener('input', updateRunButton);
         userEmail.addEventListener('input', updateRunButton);
 
-        // Simulation mode
-        simMode.addEventListener('change', function() {
-            modeDescription.textContent = modeDescriptions[this.value];
+        simMode.addEventListener('change', () => {
+            modeDescription.textContent = modeDescriptions[simMode.value];
             updateCardVisibility();
             updateConfigSummary();
         });
 
-        // Sliders
-        [duration, frameInterval, temperature, nReplicas, tempLow, tempHigh, replicaInterval, membraneInner, membraneOuter].forEach(slider => {
-            slider.addEventListener('input', function() {
+        [duration, frameInterval, temperature, nReplicas, tempLow, tempHigh,
+            replicaInterval, membraneInner, membraneOuter].forEach(slider => {
+                slider.addEventListener('input', () => {
                 updateSliderValues();
                 updateConfigSummary();
             });
         });
 
-        // Membrane coordinate system
         membraneCoordSystem.addEventListener('change', updateConfigSummary);
 
-        // Card toggles
-        enablePulling.addEventListener('change', function() {
-            toggleCardContent(pullingContent, this.checked);
+        enablePulling.addEventListener('change', () => {
+            toggleCardContent(pullingContent, enablePulling.checked);
+            updateConfigSummary();
+        });
+        pullingMode.addEventListener('change', () => {
+            const isVel = pullingMode.value === 'velocity';
+            afmSetup.classList.toggle('hidden', !isVel);
+            tensionSetup.classList.toggle('hidden', isVel);
             updateConfigSummary();
         });
 
-        enableMembrane.addEventListener('change', function() {
-            toggleCardContent(membraneContent, this.checked);
+        enableMembrane.addEventListener('change', () => {
+            toggleCardContent(membraneContent, enableMembrane.checked);
             updateConfigSummary();
         });
-
-        enableRestraints.addEventListener('change', function() {
-            toggleCardContent(restraintsContent, this.checked);
+        enableRestraints.addEventListener('change', () => {
+            toggleCardContent(restraintsContent, enableRestraints.checked);
             updateConfigSummary();
         });
-
-        // Membrane options
         disableRecentering.addEventListener('change', updateConfigSummary);
         disableZRecentering.addEventListener('change', updateConfigSummary);
 
-        // Restraint text areas
-        if (wallConstText) wallConstText.addEventListener('input', updateConfigSummary);
-        if (wallPairText) wallPairText.addEventListener('input', updateConfigSummary);
-        if (springConstText) springConstText.addEventListener('input', updateConfigSummary);
-        if (springPairText) springPairText.addEventListener('input', updateConfigSummary);
-        if (nailText) nailText.addEventListener('input', updateConfigSummary);
+        [wallConstText, wallPairText, springConstText, springPairText, nailText].forEach(el => {
+            if (el) el.addEventListener('input', updateConfigSummary);
+        });
 
-        // Restraint checkbox handlers
-        const enableWallConst = document.getElementById('enable-wall-const');
-        const enableWallPair = document.getElementById('enable-wall-pair');
-        const enableSpringConst = document.getElementById('enable-spring-const');
-        const enableSpringPair = document.getElementById('enable-spring-pair');
-        const enableNail = document.getElementById('enable-nail');
-
-        if (enableWallConst) {
-            enableWallConst.addEventListener('change', function() {
-                const entries = document.getElementById('wall-const-entries');
-                if (entries) {
-                    if (this.checked) {
-                        entries.classList.remove('hidden');
-                    } else {
-                        entries.classList.add('hidden');
-                    }
-                }
+        ['enable-wall-const', 'enable-wall-pair', 'enable-spring-const',
+            'enable-spring-pair', 'enable-nail'].forEach(checkboxId => {
+                const cb = document.getElementById(checkboxId);
+                if (!cb) return;
+                cb.addEventListener('change', () => {
+                    const entriesId = checkboxId.replace('enable-', '') + '-entries';
+                    const entries = document.getElementById(entriesId);
+                    if (entries) entries.classList.toggle('hidden', !cb.checked);
                 updateConfigSummary();
             });
-        }
-
-        if (enableWallPair) {
-            enableWallPair.addEventListener('change', function() {
-                const entries = document.getElementById('wall-pair-entries');
-                if (entries) {
-                    if (this.checked) {
-                        entries.classList.remove('hidden');
-                    } else {
-                        entries.classList.add('hidden');
-                    }
-                }
-                updateConfigSummary();
             });
-        }
 
-        if (enableSpringConst) {
-            enableSpringConst.addEventListener('change', function() {
-                const entries = document.getElementById('spring-const-entries');
-                if (entries) {
-                    if (this.checked) {
-                        entries.classList.remove('hidden');
-                    } else {
-                        entries.classList.add('hidden');
-                    }
-                }
-                updateConfigSummary();
-            });
-        }
-
-        if (enableSpringPair) {
-            enableSpringPair.addEventListener('change', function() {
-                const entries = document.getElementById('spring-pair-entries');
-                if (entries) {
-                    if (this.checked) {
-                        entries.classList.remove('hidden');
-                    } else {
-                        entries.classList.add('hidden');
-                    }
-                }
-                updateConfigSummary();
-            });
-        }
-
-        if (enableNail) {
-            enableNail.addEventListener('change', function() {
-                const entries = document.getElementById('nail-entries');
-                if (entries) {
-                    if (this.checked) {
-                        entries.classList.remove('hidden');
-                    } else {
-                        entries.classList.add('hidden');
-                    }
-                }
-                updateConfigSummary();
-            });
-        }
-
-        // Add buttons
         addAfmBtn.addEventListener('click', addAfmEntry);
+        if (addTensionBtn) addTensionBtn.addEventListener('click', addTensionEntry);
+        setupRemoveHandlers();
 
-        // Run button
-        runBtn.addEventListener('click', runSimulation);
+        runBtn.addEventListener('click', runSimulationOrSweep);
 
-        // Analysis button
-        if (runAnalysisBtn) {
-            runAnalysisBtn.addEventListener('click', runAnalysis);
+        // Sweep
+        if (enableSweep) {
+            enableSweep.addEventListener('change', () => {
+                toggleCardContent(sweepContent, enableSweep.checked);
+                updateConfigSummary();
+            });
+        }
+        if (runSweepAnalysisBtn) {
+            runSweepAnalysisBtn.addEventListener('click', runSweepAnalysis);
         }
 
-        // Keep clicking the PCA n_components input from toggling its parent <label>
+        if (runAnalysisBtn) runAnalysisBtn.addEventListener('click', runAnalysis);
         const pcaInput = document.getElementById('pca-n-components');
         if (pcaInput) {
             ['click', 'mousedown', 'keydown'].forEach(ev => {
@@ -214,267 +411,220 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
 
-        // Setup initial remove button handlers
-        setupRemoveHandlers();
+        // Backmap
+        if (runBackmapBtn) runBackmapBtn.addEventListener('click', runBackmap);
+
+        // Design
+        if (runDesignBtn) runDesignBtn.addEventListener('click', runDesignWithGuard);
+
+        // Experimental
+        if (makeDesignSheetBtn) makeDesignSheetBtn.addEventListener('click', makeExperimentSheet);
+        if (wetlabCsv) wetlabCsv.addEventListener('change', uploadWetlabCsv);
+        if (runComparisonBtn) runComparisonBtn.addEventListener('click', runComparison);
+
+        // Settings
+        if (openSettingsBtn) openSettingsBtn.addEventListener('click', openSettings);
+        if (settingsCloseBtn) settingsCloseBtn.addEventListener('click', closeSettings);
+        if (settingsSaveBtn) settingsSaveBtn.addEventListener('click', saveSettings);
     }
 
+    // -------------------------------------------------------------------
+    // File upload + sliders + config summary (existing behavior)
+    // -------------------------------------------------------------------
     function handleFileUpload(e) {
         const file = e.target.files[0];
-        if (file) {
+        if (!file) return;
             selectedFile = file;
-            fileInfo.innerHTML = `
-                <strong>Selected:</strong> ${file.name} (${(file.size / 1024).toFixed(1)} KB)
-                <br><strong>Type:</strong> ${file.type || 'PDB structure file'}
-            `;
+        fileInfo.innerHTML =
+            `<strong>Selected:</strong> ${file.name} (${(file.size / 1024).toFixed(1)} KB)` +
+            `<br><strong>Type:</strong> ${file.type || 'PDB structure file'}`;
             fileInfo.classList.remove('hidden');
             updateRunButton();
-        }
     }
 
     function updateSliderValues() {
-        document.getElementById('duration-value').textContent = duration.value;
-        document.getElementById('frame-value').textContent = frameInterval.value;
-        document.getElementById('temp-value').textContent = temperature.value;
-        document.getElementById('replicas-value').textContent = nReplicas.value;
-        document.getElementById('temp-low-value').textContent = tempLow.value;
-        document.getElementById('temp-high-value').textContent = tempHigh.value;
-        document.getElementById('replica-interval-value').textContent = replicaInterval.value;
-        document.getElementById('inner-value').textContent = membraneInner.value;
-        document.getElementById('outer-value').textContent = membraneOuter.value;
+        const set = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = val;
+        };
+        set('duration-value', duration.value);
+        set('frame-value', frameInterval.value);
+        set('temp-value', temperature.value);
+        set('replicas-value', nReplicas.value);
+        set('temp-low-value', tempLow.value);
+        set('temp-high-value', tempHigh.value);
+        set('replica-interval-value', replicaInterval.value);
+        set('inner-value', membraneInner.value);
+        set('outer-value', membraneOuter.value);
     }
 
     function updateCardVisibility() {
-        const selectedMode = simMode.value;
-
-        if (selectedMode === 'replica') {
-            constTempParams.classList.add('hidden');
-            replicaParams.classList.remove('hidden');
-        } else {
-            constTempParams.classList.remove('hidden');
-            replicaParams.classList.add('hidden');
-        }
+        const isReplica = simMode.value === 'replica';
+        constTempParams.classList.toggle('hidden', isReplica);
+        replicaParams.classList.toggle('hidden', !isReplica);
     }
 
     function toggleCardContent(content, enabled) {
-        if (enabled) {
-            content.classList.remove('disabled');
-        } else {
-            content.classList.add('disabled');
-        }
+        content.classList.toggle('disabled', !enabled);
     }
-
 
     function addAfmEntry() {
         const afmEntries = document.getElementById('afm-entries');
-        const entryCount = afmEntries.children.length + 1;
-        const newEntry = document.createElement('div');
-        newEntry.className = 'afm-entry';
-        newEntry.innerHTML = `
-            <div class="afm-entry-header">
-                <h4>AFM Point ${entryCount}</h4>
-            </div>
+        const idx = afmEntries.children.length + 1;
+        const entry = document.createElement('div');
+        entry.className = 'afm-entry';
+        entry.innerHTML =
+            `<div class="afm-entry-header"><h4>AFM Point ${idx}</h4></div>
             <div class="afm-content">
                 <div class="afm-row">
                     <div class="afm-field">
                         <label>Residue</label>
-                        <input type="number" class="afm-residue" min="0" value="0" placeholder="0">
+                        <input type="number" class="afm-residue" min="0" value="0">
                     </div>
                     <div class="afm-field">
                         <label>Spring Constant</label>
-                        <input type="number" class="afm-spring" step="0.01" value="0.05" placeholder="0.05">
+                        <input type="number" class="afm-spring" step="0.01" value="0.05">
                     </div>
                 </div>
                 <div class="afm-row">
                     <div class="afm-field">
                         <label>Tip Position (x,y,z)</label>
                         <div class="xyz-compact">
-                            <input type="number" class="afm-tip-x" step="0.1" value="0" placeholder="x">
-                            <input type="number" class="afm-tip-y" step="0.1" value="0" placeholder="y">
-                            <input type="number" class="afm-tip-z" step="0.1" value="0" placeholder="z">
+                            <input type="number" class="afm-tip-x" step="0.1" value="0">
+                            <input type="number" class="afm-tip-y" step="0.1" value="0">
+                            <input type="number" class="afm-tip-z" step="0.1" value="0">
                         </div>
                     </div>
                     <div class="afm-field">
                         <label>Pulling Velocity (x,y,z)</label>
                         <div class="xyz-compact">
-                            <input type="number" class="afm-vel-x" step="0.001" value="0" placeholder="vx">
-                            <input type="number" class="afm-vel-y" step="0.001" value="0" placeholder="vy">
-                            <input type="number" class="afm-vel-z" step="0.001" value="-0.001" placeholder="vz">
+                            <input type="number" class="afm-vel-x" step="0.001" value="0">
+                            <input type="number" class="afm-vel-y" step="0.001" value="0">
+                            <input type="number" class="afm-vel-z" step="0.001" value="-0.001">
                         </div>
                     </div>
                 </div>
                 <button type="button" class="remove-afm-btn">Remove</button>
-            </div>
-        `;
-        afmEntries.appendChild(newEntry);
+            </div>`;
+        afmEntries.appendChild(entry);
         setupRemoveHandlers();
         updateConfigSummary();
     }
 
+    function addTensionEntry() {
+        const entries = document.getElementById('tension-entries');
+        const idx = entries.children.length + 1;
+        const entry = document.createElement('div');
+        entry.className = 'afm-entry';
+        entry.innerHTML =
+            `<div class="afm-entry-header"><h4>Tension Point ${idx}</h4></div>
+            <div class="afm-content">
+                <div class="afm-row">
+                    <div class="afm-field">
+                        <label>Residue</label>
+                        <input type="number" class="tension-residue" min="0" value="0">
+            </div>
+                    <div class="afm-field">
+                        <label>Tension (tx, ty, tz) - kT/A</label>
+                        <div class="xyz-compact">
+                            <input type="number" class="tension-tx" step="0.01" value="0">
+                            <input type="number" class="tension-ty" step="0.01" value="0">
+                            <input type="number" class="tension-tz" step="0.01" value="0.5">
+                        </div>
+                    </div>
+                </div>
+                <button type="button" class="remove-tension-btn">Remove</button>
+            </div>`;
+        entries.appendChild(entry);
+        setupRemoveHandlers();
+        updateConfigSummary();
+    }
 
     function setupRemoveHandlers() {
-        // AFM remove buttons
         document.querySelectorAll('.remove-afm-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                this.closest('.afm-entry').remove();
-                updateConfigSummary();
+            btn.onclick = () => { btn.closest('.afm-entry').remove(); updateConfigSummary(); };
             });
+        document.querySelectorAll('.remove-tension-btn').forEach(btn => {
+            btn.onclick = () => { btn.closest('.afm-entry').remove(); updateConfigSummary(); };
         });
-
-        // Add input listeners for AFM entries
         document.querySelectorAll('.afm-entry input').forEach(input => {
+            input.removeEventListener('input', updateConfigSummary);
             input.addEventListener('input', updateConfigSummary);
         });
     }
 
     function updateConfigSummary() {
         currentConfig = {
-            userName: userName.value || 'Not specified',
-            userEmail: userEmail.value || 'Not specified',
-            simMode: simMode.value,
-            duration: parseInt(duration.value),
-            frameInterval: parseInt(frameInterval.value),
+            userName:    userName.value || 'Not specified',
+            userEmail:   userEmail.value || 'Not specified',
+            simMode:     simMode.value,
+            duration:    parseInt(duration.value, 10),
+            frameInterval: parseInt(frameInterval.value, 10),
             temperature: parseFloat(temperature.value),
-            nReplicas: parseInt(nReplicas.value),
-            tempLow: parseFloat(tempLow.value),
-            tempHigh: parseFloat(tempHigh.value),
-            replicaInterval: parseInt(replicaInterval.value),
-            membraneCoordSystem: membraneCoordSystem.value,
-            membraneInner: parseFloat(membraneInner.value),
-            membraneOuter: parseFloat(membraneOuter.value),
             enablePulling: enablePulling.checked,
-            enableMembrane: enableMembrane.checked,
-            enableRestraints: enableRestraints.checked,
-            disableRecentering: disableRecentering.checked,
-            disableZRecentering: disableZRecentering.checked
+            pullingMode: pullingMode ? pullingMode.value : 'velocity',
+            enableSweep: enableSweep ? enableSweep.checked : false,
         };
-
-        let summary = `Contact: ${currentConfig.userName} (${currentConfig.userEmail})
-Simulation Mode: ${simMode.options[simMode.selectedIndex].text}
-Duration: ${currentConfig.duration} steps (~${(currentConfig.duration * 0.05).toFixed(1)} ns)
-Frame Interval: ${currentConfig.frameInterval} steps
-Force Field: ff_2.1`;
-
-        // Add temperature info
-        if (currentConfig.simMode === 'replica') {
-            summary += `
-Replicas: ${currentConfig.nReplicas}
-Temperature Range: ${currentConfig.tempLow} - ${currentConfig.tempHigh}
-Replica Interval: ${currentConfig.replicaInterval} steps`;
-        } else {
-            summary += `
-Temperature: ${currentConfig.temperature}`;
+        let summary = `Contact: ${currentConfig.userName} (${currentConfig.userEmail})\n` +
+            `Sim mode: ${simMode.options[simMode.selectedIndex].text}\n` +
+            `Duration: ${currentConfig.duration} steps (~${(currentConfig.duration * 0.05).toFixed(1)} ns)\n` +
+            `Frame Interval: ${currentConfig.frameInterval} steps\n` +
+            `Temperature: ${currentConfig.temperature}\n` +
+            `Force field: ff_2.1`;
+        if (currentConfig.enableSweep) {
+            summary += `\nForce sweep: enabled (${(sweepForces.value || '').split(',').filter(x => x.trim()).length} forces, ${sweepReplicas.value} replicas)`;
+        } else if (currentConfig.enablePulling) {
+            summary += `\nPulling: enabled (${currentConfig.pullingMode})`;
         }
-
-        // Add pulling info
-        if (currentConfig.enablePulling) {
-            const afmEntries = document.querySelectorAll('.afm-entry');
-            summary += `
-Pulling: Enabled (${afmEntries.length} AFM points)`;
-
-            afmEntries.forEach((entry, index) => {
-                const residue = entry.querySelector('.afm-residue').value;
-                const spring = entry.querySelector('.afm-spring').value;
-                const tipX = entry.querySelector('.afm-tip-x').value;
-                const tipY = entry.querySelector('.afm-tip-y').value;
-                const tipZ = entry.querySelector('.afm-tip-z').value;
-                const velX = entry.querySelector('.afm-vel-x').value;
-                const velY = entry.querySelector('.afm-vel-y').value;
-                const velZ = entry.querySelector('.afm-vel-z').value;
-
-                summary += `
-  AFM ${index + 1}: Res ${residue}, k=${spring}, tip=(${tipX},${tipY},${tipZ}), vel=(${velX},${velY},${velZ})`;
-            });
-        }
-
-        // Add membrane info
-        if (currentConfig.enableMembrane) {
-            const coordLabel = currentConfig.membraneCoordSystem === 'cartesian' ? 'z' : 'h';
-            summary += `
-Membrane: Enabled (${currentConfig.membraneCoordSystem})
-${coordLabel} range: ${currentConfig.membraneInner} to ${currentConfig.membraneOuter} Å`;
-            if (currentConfig.disableRecentering) {
-                summary += `
-Disable recentering: Yes`;
-            }
-            if (currentConfig.disableZRecentering) {
-                summary += `
-Disable Z-recentering: Yes`;
-            }
-        }
-
-        // Add restraint info
-        if (currentConfig.enableRestraints) {
-            const restraintTypes = [];
-
-            if (wallConstText && wallConstText.value.trim()) {
-                const lines = wallConstText.value.trim().split('\n').filter(line => line.trim());
-                restraintTypes.push(`Fixed Wall (${lines.length})`);
-            }
-
-            if (wallPairText && wallPairText.value.trim()) {
-                const lines = wallPairText.value.trim().split('\n').filter(line => line.trim());
-                restraintTypes.push(`Pair Wall (${lines.length})`);
-            }
-
-            if (springConstText && springConstText.value.trim()) {
-                const lines = springConstText.value.trim().split('\n').filter(line => line.trim());
-                restraintTypes.push(`Fixed Spring (${lines.length})`);
-            }
-
-            if (springPairText && springPairText.value.trim()) {
-                const lines = springPairText.value.trim().split('\n').filter(line => line.trim());
-                restraintTypes.push(`Pair Spring (${lines.length})`);
-            }
-
-            if (nailText && nailText.value.trim()) {
-                const lines = nailText.value.trim().split('\n').filter(line => line.trim());
-                restraintTypes.push(`Nail (${lines.length})`);
-            }
-
-            if (restraintTypes.length > 0) {
-                summary += `
-Restraints: ${restraintTypes.join(', ')}`;
-            }
-        }
-
         configSummary.textContent = summary;
     }
 
     function updateRunButton() {
-        const hasRequiredFields = selectedFile && userName.value.trim() && userEmail.value.trim();
-        runBtn.disabled = !hasRequiredFields;
+        const hasReq = selectedFile && userName.value.trim() && userEmail.value.trim();
+        runBtn.disabled = !hasReq;
     }
 
-    function runSimulation() {
+    // -------------------------------------------------------------------
+    // Submit job (single or sweep)
+    // -------------------------------------------------------------------
+    function runSimulationOrSweep() {
         if (!selectedFile || !userName.value.trim() || !userEmail.value.trim()) return;
-
         runBtn.disabled = true;
-        runBtn.querySelector('.spinner').classList.remove('hidden');
+        const spinner = runBtn.querySelector('.spinner');
+        if (spinner) spinner.classList.remove('hidden');
         runBtn.querySelector('.btn-text').textContent = 'Running...';
 
         progressSection.classList.remove('hidden');
         resultsSection.classList.add('hidden');
         analysisSection.classList.add('hidden');
+        backmapSection.classList.add('hidden');
+        designSection.classList.add('hidden');
         analysisResultsEl.innerHTML = '';
         analysisStatusEl.textContent = '';
-        document.getElementById('log-output').textContent = '';
+        const log = document.getElementById('log-output');
+        if (log) log.textContent = '';
 
-        const afmEntries = Array.from(document.querySelectorAll('.afm-entry')).map(entry => ({
-            residue: entry.querySelector('.afm-residue').value,
-            spring:  entry.querySelector('.afm-spring').value,
-            velX:    entry.querySelector('.afm-vel-x').value,
-            velY:    entry.querySelector('.afm-vel-y').value,
-            velZ:    entry.querySelector('.afm-vel-z').value
-        }));
+        if (enableSweep && enableSweep.checked) {
+            return submitSweep();
+        }
+        return submitSingle();
+    }
 
+    function submitSingle() {
         const config = {
-            duration: parseInt(duration.value),
-            frameInterval: parseInt(frameInterval.value),
+            duration: parseInt(duration.value, 10),
+            frameInterval: parseInt(frameInterval.value, 10),
             temperature: parseFloat(temperature.value),
             enablePulling: enablePulling.checked,
-            afmEntries: afmEntries
+            pullingMode: pullingMode ? pullingMode.value : 'velocity',
         };
-
+        if (config.enablePulling) {
+            if (config.pullingMode === 'tension') {
+                config.tensionEntries = readTensionEntries();
+            } else {
+                config.afmEntries = readAfmEntries();
+            }
+        }
         const formData = new FormData();
         formData.append('pdb', selectedFile);
         formData.append('config', JSON.stringify(config));
@@ -492,193 +642,656 @@ Restraints: ${restraintTypes.join(', ')}`;
             });
     }
 
+    function submitSweep() {
+        const forces = (sweepForces.value || '').split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+        if (forces.length === 0) {
+            document.getElementById('progress-text').textContent = 'Add at least one force to the sweep.';
+            resetRunButton();
+            return;
+        }
+        const config = {
+            duration: parseInt(duration.value, 10),
+            frameInterval: parseInt(frameInterval.value, 10),
+            temperature: parseFloat(temperature.value),
+            sweepMode: sweepMode.value,
+            forces_pn: forces,
+            n_replicas: parseInt(sweepReplicas.value, 10) || 1,
+            anchorResidue: parseInt(sweepAnchor.value, 10) || 0,
+            pullResidue: parseInt(sweepPuller.value, 10),
+        };
+        const formData = new FormData();
+        formData.append('pdb', selectedFile);
+        formData.append('config', JSON.stringify(config));
+        sweepProgress.classList.remove('hidden');
+        sweepProgressFill.style.width = '2%';
+        sweepProgressText.textContent = 'Queued...';
+        fetch('/api/sweeps', { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                currentJobId = data.job_id;
+                currentSweepId = data.sweep_id;
+                startTimer();
+                pollSweepStatus(data.job_id);
+            })
+            .catch(err => {
+                sweepProgressText.textContent = 'Sweep submission failed: ' + err.message;
+                resetRunButton();
+            });
+    }
+
+    function readAfmEntries() {
+        return Array.from(document.querySelectorAll('#afm-entries .afm-entry')).map(e => ({
+            residue: e.querySelector('.afm-residue').value,
+            spring:  e.querySelector('.afm-spring').value,
+            velX:    e.querySelector('.afm-vel-x').value,
+            velY:    e.querySelector('.afm-vel-y').value,
+            velZ:    e.querySelector('.afm-vel-z').value,
+        }));
+    }
+
+    function readTensionEntries() {
+        return Array.from(document.querySelectorAll('#tension-entries .afm-entry')).map(e => ({
+            residue: e.querySelector('.tension-residue').value,
+            tx: e.querySelector('.tension-tx').value,
+            ty: e.querySelector('.tension-ty').value,
+            tz: e.querySelector('.tension-tz').value,
+        }));
+    }
+
+    // -------------------------------------------------------------------
+    // Status polling
+    // -------------------------------------------------------------------
     let _timerInterval = null;
     let _timerStart = null;
-
     function startTimer() {
         _timerStart = Date.now();
         const el = document.getElementById('elapsed-time');
         _timerInterval = setInterval(() => {
             const s = ((Date.now() - _timerStart) / 1000).toFixed(1);
-            el.textContent = `Time: ${s}s`;
+            if (el) el.textContent = `Time: ${s}s`;
         }, 50);
     }
-
-    function stopTimer() {
-        if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
-    }
+    function stopTimer() { if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; } }
 
     function pollJobStatus(jobId) {
-        const progressFill = document.getElementById('progress-fill');
-        const progressText = document.getElementById('progress-text');
-        const currentStepEl = document.getElementById('current-step');
-
+        currentJobId = jobId;
+        const fill = document.getElementById('progress-fill');
+        const text = document.getElementById('progress-text');
+        const stepEl = document.getElementById('current-step');
         fetch('/api/jobs/' + jobId)
             .then(r => r.json())
             .then(data => {
                 if (data.status === 'queued') {
-                    progressText.textContent = 'Queued...';
-                    progressFill.style.width = '2%';
-                    currentStepEl.textContent = 'Step: 0';
+                    text.textContent = 'Queued...';
+                    fill.style.width = '2%';
+                    stepEl.textContent = 'Step: 0';
                     setTimeout(() => pollJobStatus(jobId), 500);
                 } else if (data.status === 'running') {
                     const pct = data.total_steps > 0
                         ? Math.min(99, Math.round((data.current_step / data.total_steps) * 100))
                         : 50;
-                    progressFill.style.width = pct + '%';
-                    progressText.textContent = `Running... ${pct}%`;
-                    currentStepEl.textContent = `Step: ${data.current_step} / ${data.total_steps}`;
+                    fill.style.width = pct + '%';
+                    text.textContent = `Running... ${pct}%`;
+                    stepEl.textContent = `Step: ${data.current_step} / ${data.total_steps}`;
                     setTimeout(() => pollJobStatus(jobId), 500);
                 } else if (data.status === 'completed') {
                     stopTimer();
-                    progressFill.style.width = '100%';
-                    progressText.textContent = 'Simulation complete!';
-                    currentStepEl.textContent = `Step: ${data.total_steps} / ${data.total_steps}`;
+                    fill.style.width = '100%';
+                    text.textContent = 'Simulation complete!';
+                    stepEl.textContent = `Step: ${data.total_steps} / ${data.total_steps}`;
                     displayResults(jobId);
                 } else if (data.status === 'failed') {
                     stopTimer();
-                    progressText.textContent = `Failed${data.returncode != null ? ' (exit ' + data.returncode + ')' : ''}: ${data.error || 'check server log'}`;
-                    progressFill.style.width = '100%';
+                    text.textContent = `Failed${data.returncode != null ? ' (exit ' + data.returncode + ')' : ''}: ${data.error || 'check server log'}`;
+                    fill.style.width = '100%';
                     resetRunButton();
                 }
             })
             .catch(err => {
-                progressText.textContent = 'Status check failed: ' + err.message;
+                text.textContent = 'Status check failed: ' + err.message;
+                resetRunButton();
+            });
+    }
+
+    function pollSweepStatus(jobId) {
+        fetch('/api/sweeps/' + jobId)
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                const pct = data.progress_pct || 0;
+                sweepProgressFill.style.width = pct + '%';
+                sweepProgressText.textContent =
+                    `Sweep: ${data.completed || 0} / ${data.total || 0} sub-jobs done (${pct.toFixed(1)}%)`;
+                if (data.status === 'completed' || data.status === 'failed') {
+                    stopTimer();
+                    sweepProgressText.textContent = data.status === 'completed'
+                        ? `Sweep complete: ${data.completed} / ${data.total} sub-jobs.`
+                        : `Sweep failed: ${data.error || 'see logs'}`;
+                    displaySweepResults(jobId, data);
+                } else {
+                    setTimeout(() => pollSweepStatus(jobId), 1500);
+                }
+            })
+            .catch(err => {
+                sweepProgressText.textContent = 'Sweep status check failed: ' + err.message;
                 resetRunButton();
             });
     }
 
     function displayResults(jobId) {
         currentJobId = jobId;
-        runBtn.querySelector('.spinner').classList.add('hidden');
+        const spinner = runBtn.querySelector('.spinner');
+        if (spinner) spinner.classList.add('hidden');
         runBtn.querySelector('.btn-text').textContent = 'Run Complete';
         resultsSection.classList.remove('hidden');
         analysisSection.classList.remove('hidden');
         analysisResultsEl.innerHTML = '';
         analysisStatusEl.textContent = '';
-
         document.getElementById('traj-filename').textContent = `${jobId}.run.up`;
         document.getElementById('result-summary').textContent =
             `Job ID: ${jobId}\nTrajectory: ${jobId}.run.up\nDownload via the button below.`;
-
         document.querySelectorAll('.download-btn').forEach(btn => {
             btn.onclick = () => { window.location = '/api/jobs/' + jobId + '/download'; };
         });
+        setTimeout(resetRunButton, 1500);
+    }
 
+    function displaySweepResults(jobId, data) {
+        currentJobId = jobId;
+        sweepResultsEl.classList.remove('hidden');
+        analysisSection.classList.add('hidden');
+        const spinner = runBtn.querySelector('.spinner');
+        if (spinner) spinner.classList.add('hidden');
+        runBtn.querySelector('.btn-text').textContent = 'Sweep Complete';
         setTimeout(resetRunButton, 1500);
     }
 
     function resetRunButton() {
         runBtn.disabled = false;
-        runBtn.querySelector('.spinner').classList.add('hidden');
+        const spinner = runBtn.querySelector('.spinner');
+        if (spinner) spinner.classList.add('hidden');
         runBtn.querySelector('.btn-text').textContent = 'Run Simulation';
     }
 
+    // -------------------------------------------------------------------
+    // Single-traj analysis (existing) + sweep analysis (new)
+    // -------------------------------------------------------------------
     function runAnalysis() {
         if (!currentJobId) return;
-
-        const selected = Array.from(
-            document.querySelectorAll('input[name="analysis"]:checked')
-        ).map(cb => cb.value);
-
-        if (selected.length === 0) {
-            analysisStatusEl.textContent = 'Pick at least one analysis to run.';
-            return;
-        }
-
+        const selected = Array.from(document.querySelectorAll('input[name="analysis"]:checked'))
+            .map(cb => cb.value);
+        if (selected.length === 0) { analysisStatusEl.textContent = 'Pick at least one analysis to run.'; return; }
         const params = {};
         if (selected.includes('pca')) {
-            const nInput = document.getElementById('pca-n-components');
-            const n = parseInt(nInput && nInput.value, 10);
-            if (Number.isFinite(n) && n >= 1) {
-                params.pca = { n_components: n };
-            }
+            const n = parseInt(document.getElementById('pca-n-components').value, 10);
+            if (Number.isFinite(n) && n >= 1) params.pca = { n_components: n };
         }
-
+        const spinner = runAnalysisBtn.querySelector('.spinner');
         runAnalysisBtn.disabled = true;
-        runAnalysisBtn.querySelector('.spinner').classList.remove('hidden');
+        if (spinner) spinner.classList.remove('hidden');
         runAnalysisBtn.querySelector('.btn-text').textContent = 'Analyzing...';
-        analysisStatusEl.textContent = `Running ${selected.length} analysis step(s) on ${currentJobId}. This may take a few seconds while the trajectory loads.`;
+        analysisStatusEl.textContent = `Running ${selected.length} analysis step(s)...`;
         analysisResultsEl.innerHTML = '';
 
         fetch(`/api/jobs/${currentJobId}/analyze`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ analyses: selected, params })
+            body: JSON.stringify({ analyses: selected, params }),
         })
             .then(r => r.json().then(data => ({ ok: r.ok, data })))
             .then(({ ok, data }) => {
-                if (!ok || data.error) {
-                    throw new Error(data.error || 'Analysis failed');
-                }
-                renderAnalysisResults(data.results || {});
-                analysisStatusEl.textContent =
-                    `Analysis complete (${Object.keys(data.results || {}).length} step(s)).`;
+                if (!ok || data.error) throw new Error(data.error || 'Analysis failed');
+                renderAnalysisResults(analysisResultsEl, data.results || {});
+                analysisStatusEl.textContent = `Analysis complete (${Object.keys(data.results || {}).length} step(s)).`;
+                refreshIntermediates();
+                backmapSection.classList.remove('hidden');
             })
-            .catch(err => {
-                analysisStatusEl.textContent = 'Analysis failed: ' + err.message;
-            })
+            .catch(err => { analysisStatusEl.textContent = 'Analysis failed: ' + err.message; })
             .finally(() => {
                 runAnalysisBtn.disabled = false;
-                runAnalysisBtn.querySelector('.spinner').classList.add('hidden');
+                if (spinner) spinner.classList.add('hidden');
                 runAnalysisBtn.querySelector('.btn-text').textContent = 'Run Analysis';
             });
     }
 
-    function renderAnalysisResults(results) {
-        analysisResultsEl.innerHTML = '';
+    function runSweepAnalysis() {
+        if (!currentJobId) return;
+        const spinner = runSweepAnalysisBtn.querySelector('.spinner');
+        runSweepAnalysisBtn.disabled = true;
+        if (spinner) spinner.classList.remove('hidden');
+        runSweepAnalysisBtn.querySelector('.btn-text').textContent = 'Analyzing...';
+        sweepAnalysisResults.innerHTML = '';
 
+        fetch(`/api/jobs/${currentJobId}/analyze-sweep`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ analyses: ['epitope_candidates', 'burial_sweep', 'intermediates'] }),
+        })
+            .then(r => r.json().then(data => ({ ok: r.ok, data })))
+            .then(({ ok, data }) => {
+                if (!ok || data.error) throw new Error(data.error || 'Sweep analysis failed');
+                renderAnalysisResults(sweepAnalysisResults, data.results || {});
+                refreshIntermediates();
+                backmapSection.classList.remove('hidden');
+                experimentalSection.classList.remove('hidden');
+            })
+            .catch(err => {
+                const div = document.createElement('div');
+                div.className = 'analysis-error';
+                div.textContent = 'Sweep analysis failed: ' + err.message;
+                sweepAnalysisResults.appendChild(div);
+            })
+            .finally(() => {
+                runSweepAnalysisBtn.disabled = false;
+                if (spinner) spinner.classList.add('hidden');
+                runSweepAnalysisBtn.querySelector('.btn-text').textContent = 'Compute Epitope Candidates';
+            });
+    }
+
+    function renderAnalysisResults(target, results) {
+        target.innerHTML = '';
         const order = [
             'rg', 'rmsd', 'rmsf', 'e2e', 'hbonds', 'salt_bridges',
-            'shape', 'cross_corr', 'ss', 'pca', 'force_ext', 'contacts'
+            'shape', 'cross_corr', 'ss', 'pca', 'force_ext', 'contacts',
+            'burial_scan', 'dihedral', 'intermediates',
+            'epitope_candidates', 'burial_sweep',
         ];
         const sortedKeys = Object.keys(results).sort((a, b) => {
             const ai = order.indexOf(a); const bi = order.indexOf(b);
             return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
         });
-
         for (const key of sortedKeys) {
             const result = results[key];
             const card = document.createElement('div');
             card.className = 'analysis-result-card';
-
             const title = document.createElement('h3');
             title.textContent = result.name || key;
             card.appendChild(title);
-
             if (result.error) {
                 const err = document.createElement('div');
                 err.className = 'analysis-error';
                 err.textContent = result.error;
                 card.appendChild(err);
-                analysisResultsEl.appendChild(card);
+                target.appendChild(card);
                 continue;
             }
-
             if (result.description) {
-                const desc = document.createElement('div');
-                desc.className = 'analysis-description';
-                desc.textContent = result.description;
-                card.appendChild(desc);
+                const d = document.createElement('div');
+                d.className = 'analysis-description';
+                d.textContent = result.description;
+                card.appendChild(d);
             }
-
             if (result.image_url) {
                 const img = document.createElement('img');
                 img.src = result.image_url + '?t=' + Date.now();
                 img.alt = result.name || key;
                 card.appendChild(img);
             }
-
             if (result.stats && Object.keys(result.stats).length > 0) {
                 const stats = document.createElement('div');
                 stats.className = 'analysis-stats';
                 stats.textContent = Object.entries(result.stats)
-                    .map(([k, v]) => `${k}: ${typeof v === 'number' ? v.toFixed(3) : v}`)
+                    .map(([k, v]) => {
+                        if (Array.isArray(v) || (v && typeof v === 'object')) {
+                            return `${k}: ${JSON.stringify(v)}`;
+                        }
+                        return `${k}: ${typeof v === 'number' ? v.toFixed(3) : v}`;
+                    })
                     .join('\n');
                 card.appendChild(stats);
             }
-
-            analysisResultsEl.appendChild(card);
+            target.appendChild(card);
         }
+    }
+
+    // -------------------------------------------------------------------
+    // Phase 2: back-mapping
+    // -------------------------------------------------------------------
+    function refreshIntermediates() {
+        if (!currentJobId) return;
+        fetch(`/api/jobs/${currentJobId}/intermediates`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    intermediatesList.textContent = 'Could not list intermediates: ' + data.error;
+                    return;
+                }
+                if (!data.files || data.files.length === 0) {
+                    intermediatesList.textContent = 'No intermediates yet. Run the Intermediate Clustering analysis first.';
+                    return;
+                }
+                intermediatesList.innerHTML = `<strong>${data.files.length} intermediates:</strong> ${data.files.join(', ')}`;
+                designSection.classList.remove('hidden');
+                refreshDesignChoices();
+            })
+            .catch(err => { intermediatesList.textContent = 'Listing failed: ' + err.message; });
+    }
+
+    function runBackmap() {
+        if (!currentJobId) return;
+        const spinner = runBackmapBtn.querySelector('.spinner');
+        runBackmapBtn.disabled = true;
+        if (spinner) spinner.classList.remove('hidden');
+        backmapStatus.textContent = 'Submitting back-map job...';
+        fetch(`/api/jobs/${currentJobId}/backmap`, { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                backmapStatus.textContent = 'Back-mapping running...';
+                pollBackmap();
+            })
+            .catch(err => {
+                backmapStatus.textContent = 'Back-map failed: ' + err.message;
+                runBackmapBtn.disabled = false;
+                if (spinner) spinner.classList.add('hidden');
+            });
+    }
+
+    function pollBackmap() {
+        fetch('/api/jobs/' + currentJobId)
+            .then(r => r.json())
+            .then(data => {
+                if (data.backmap_status === 'completed' || data.backmap_status === 'empty' || data.backmap_status === 'failed') {
+                    runBackmapBtn.disabled = false;
+                    const spinner = runBackmapBtn.querySelector('.spinner');
+                    if (spinner) spinner.classList.add('hidden');
+                    backmapStatus.textContent = `Back-map ${data.backmap_status}` +
+                        (data.backmap_error ? `: ${data.backmap_error}` : '');
+                    listBackmapped();
+                    refreshDesignChoices();
+            } else {
+                    setTimeout(pollBackmap, 1500);
+                }
+            });
+    }
+
+    function listBackmapped() {
+        fetch(`/api/jobs/${currentJobId}/backmapped`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { backmappedList.textContent = data.error; return; }
+                if (!data.files || data.files.length === 0) {
+                    backmappedList.textContent = 'No back-mapped structures yet.';
+                return;
+            }
+                const links = data.files.map(f =>
+                    `<a href="/api/jobs/${currentJobId}/backmapped/${encodeURIComponent(f)}" target="_blank">${f}</a>`,
+                ).join(', ');
+                backmappedList.innerHTML = `<strong>Back-mapped:</strong> ${links}`;
+            });
+    }
+
+    // -------------------------------------------------------------------
+    // Phase 3: AI design
+    // -------------------------------------------------------------------
+    function refreshDesignChoices() {
+        fetch(`/api/jobs/${currentJobId}/backmapped`)
+            .then(r => r.json())
+            .then(data => {
+                designIntermediate.innerHTML = '';
+                (data.files || []).forEach(f => {
+                    const opt = document.createElement('option');
+                    opt.value = f.replace(/\.pdb$/, '');
+                    opt.textContent = f;
+                    designIntermediate.appendChild(opt);
+                });
+                if ((data.files || []).length > 0) {
+                    designSection.classList.remove('hidden');
+                }
+            });
+    }
+
+    function runDesignWithGuard() {
+        const n = parseInt(designNDesigns.value, 10) || 0;
+        if (n > 100) {
+            const ok = confirm(
+                `You're about to submit ${n} design backbones. ` +
+                `Real-API runs are billed per design and a run of this size can be expensive. ` +
+                `Proceed?`,
+            );
+            if (!ok) return;
+        }
+        runDesign();
+    }
+
+    function runDesign() {
+        const body = {
+            intermediate_state: designIntermediate.value,
+            hotspots: (designHotspots.value || '').split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n)),
+            n_designs: parseInt(designNDesigns.value, 10) || 50,
+            binder_length: parseInt(designBinderLength.value, 10) || 100,
+            n_seqs_per_design: parseInt(designNSeqs.value, 10) || 8,
+            use_mock: designUseMock.checked,
+        };
+        const spinner = runDesignBtn.querySelector('.spinner');
+        runDesignBtn.disabled = true;
+        if (spinner) spinner.classList.remove('hidden');
+        designStatus.textContent = 'Submitting design pipeline...';
+        designResults.innerHTML = '';
+
+        fetch(`/api/jobs/${currentJobId}/design`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                designStatus.textContent = `Design ${data.design_id} queued. Polling...`;
+                pollDesign(data.design_id);
+            })
+            .catch(err => {
+                designStatus.textContent = 'Design submission failed: ' + err.message;
+                runDesignBtn.disabled = false;
+                if (spinner) spinner.classList.add('hidden');
+            });
+    }
+
+    function pollDesign(designId) {
+        fetch(`/api/design/${currentJobId}/${designId}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'completed') {
+                    runDesignBtn.disabled = false;
+                    const spinner = runDesignBtn.querySelector('.spinner');
+                    if (spinner) spinner.classList.add('hidden');
+                    renderDesign(designId, data);
+                } else if (data.status === 'failed') {
+                    runDesignBtn.disabled = false;
+                    const spinner = runDesignBtn.querySelector('.spinner');
+                    if (spinner) spinner.classList.add('hidden');
+                    designStatus.textContent = 'Design failed: ' + (data.error || 'see logs');
+                } else {
+                    designStatus.textContent = `Design ${designId} ${data.status || 'running'}...`;
+                    setTimeout(() => pollDesign(designId), 2000);
+                }
+            });
+    }
+
+    function renderDesign(designId, data) {
+        designStatus.textContent = `Design ${designId} complete (${(data.results || {}).client_kind || 'unknown'} client).`;
+        designResults.innerHTML = '';
+        const candidates = (data.results || {}).candidates || [];
+        candidates.forEach(c => {
+            const card = document.createElement('div');
+            card.className = 'analysis-result-card';
+            const h = document.createElement('h3');
+            h.textContent = `Rank ${c.rank}: ipTM ${(c.iptm || 0).toFixed(3)}`;
+            card.appendChild(h);
+            const seq = document.createElement('div');
+            seq.className = 'analysis-stats';
+            seq.textContent = `Sequence: ${c.binder_sequence || '-'}\npLDDT: ${c.plddt_mean || '-'}`;
+            card.appendChild(seq);
+            const a = document.createElement('a');
+            a.href = `/api/design/${currentJobId}/${designId}/candidate/${c.rank}`;
+            a.textContent = 'Download PDB';
+            a.target = '_blank';
+            card.appendChild(a);
+            designResults.appendChild(card);
+        });
+    }
+
+    // -------------------------------------------------------------------
+    // Phase 4: experimental design + comparison
+    // -------------------------------------------------------------------
+    function makeExperimentSheet() {
+        if (!currentJobId) { expDesignStatus.textContent = 'Run a job first.'; return; }
+        const body = {
+            n_zones: parseInt(expZones.value, 10) || 10,
+            target_force_range: [parseFloat(expForceLow.value), parseFloat(expForceHigh.value)],
+            predicted_thresholds_pn: (expThresholds.value || '').split(',')
+                .map(s => parseFloat(s.trim())).filter(n => !isNaN(n)),
+            attachment: expAttachment.value,
+        };
+        expDesignStatus.textContent = 'Generating experiment sheet...';
+        fetch(`/api/jobs/${currentJobId}/experiment-design`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                expDesignStatus.textContent = 'Experiment sheet generated.';
+                expDesignOutput.classList.remove('hidden');
+                expDesignOutput.textContent = data.markdown;
+            })
+            .catch(err => { expDesignStatus.textContent = 'Failed: ' + err.message; });
+    }
+
+    function uploadWetlabCsv() {
+        if (!currentJobId || !wetlabCsv.files || wetlabCsv.files.length === 0) return;
+        const fd = new FormData();
+        fd.append('csv', wetlabCsv.files[0]);
+        wetlabUploadStatus.textContent = 'Uploading...';
+        fetch(`/api/jobs/${currentJobId}/experimental`, { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                lastWetlabFilename = data.filename;
+                let msg = `Uploaded ${data.filename} (${data.n_rows} rows)`;
+                if (data.warnings && data.warnings.length) msg += '. ' + data.warnings.join('; ');
+                wetlabUploadStatus.textContent = msg;
+            })
+            .catch(err => { wetlabUploadStatus.textContent = 'Upload failed: ' + err.message; });
+    }
+
+    function runComparison() {
+        if (!currentJobId || !lastWetlabFilename) {
+            comparisonStatus.textContent = 'Upload a wet-lab CSV first.';
+            return;
+        }
+        const thr = parseFloat(wetlabPredThreshold.value);
+        if (isNaN(thr)) { comparisonStatus.textContent = 'Enter the predicted threshold (pN).'; return; }
+        comparisonStatus.textContent = 'Running comparison...';
+        comparisonResults.innerHTML = '';
+        fetch(`/api/jobs/${currentJobId}/comparison`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ csv: lastWetlabFilename, predicted_threshold_pn: thr }),
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                comparisonStatus.textContent = 'Comparison ready.';
+                renderAnalysisResults(comparisonResults, { force_binding_comparison: data });
+            })
+            .catch(err => { comparisonStatus.textContent = 'Comparison failed: ' + err.message; });
+    }
+
+    // -------------------------------------------------------------------
+    // Context help modal (?)
+    // -------------------------------------------------------------------
+    let helpModalListenersBound = false;
+
+    function setupHelpModal() {
+        if (!helpModal || helpModalListenersBound) return;
+        helpModalListenersBound = true;
+        /* Capture phase so (?) opens reliably even when nested in complex controls */
+        document.addEventListener('click', onHelpRelatedClick, true);
+        if (helpModalClose) {
+            helpModalClose.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeHelpModal();
+            });
+        }
+        document.addEventListener('keydown', onHelpEscapeKey);
+    }
+
+    function onHelpEscapeKey(e) {
+        if (e.key !== 'Escape' || !helpModal || helpModal.classList.contains('hidden')) return;
+        closeHelpModal();
+    }
+
+    function onHelpRelatedClick(e) {
+        const closeTarget = e.target.closest('[data-close-help]');
+        if (closeTarget) {
+            if (helpModal && !helpModal.classList.contains('hidden')) {
+                e.preventDefault();
+                closeHelpModal();
+            }
+            return;
+        }
+        const btn = e.target.closest('[data-help]');
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const key = btn.getAttribute('data-help');
+        const entry = HELP_CONTENT[key];
+        if (!entry) return;
+        if (helpModalTitle) helpModalTitle.textContent = entry.title;
+        if (helpModalBody) helpModalBody.innerHTML = entry.html;
+        helpModal.classList.remove('hidden');
+        helpModal.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeHelpModal() {
+        if (!helpModal) return;
+        helpModal.classList.add('hidden');
+        helpModal.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+    }
+
+    // -------------------------------------------------------------------
+    // Settings dialog
+    // -------------------------------------------------------------------
+    function openSettings() {
+        settingsDialog.classList.remove('hidden');
+        loadSettingsStatus();
+    }
+    function closeSettings() { settingsDialog.classList.add('hidden'); }
+    function loadSettingsStatus() {
+        if (!settingsStatus) return;
+        fetch('/api/settings/tamarind')
+            .then(r => r.json())
+            .then(data => {
+                settingsStatus.textContent = data.configured
+                    ? `Tamarind API configured (endpoint: ${data.endpoint}).`
+                    : `Tamarind API not configured. Phase 3 will use the mock client by default.`;
+                if (tamarindEndpoint && !tamarindEndpoint.value) tamarindEndpoint.value = data.endpoint || '';
+            })
+            .catch(() => { settingsStatus.textContent = 'Could not reach the server.'; });
+    }
+    function saveSettings() {
+        fetch('/api/settings/tamarind', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                api_key: tamarindApiKey.value,
+                endpoint: tamarindEndpoint.value,
+            }),
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                settingsStatus.textContent = data.configured
+                    ? 'Saved. Tamarind API configured.'
+                    : 'Saved. (No API key set - mock client will be used.)';
+                tamarindApiKey.value = '';
+            })
+            .catch(err => { settingsStatus.textContent = 'Save failed: ' + err.message; });
     }
 });

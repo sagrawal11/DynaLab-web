@@ -1,18 +1,5 @@
 # Upside Web Demos
 
-Three prototype web interfaces demonstrating different levels of complexity for running upside simulations via web interface.
+Legacy note: the Flask app in `web/server/` is the supported path. It serves the **DynaLab** UI from `web/intermediate/` and redirects **`http://localhost:<port>/`** to `/intermediate/`.
 
-## Demos
-
-- **demo-simple/** - Zero-config interface: upload PDB, click run
-- **demo-intermediate/** - Parameterized interface: choose simulation type, adjust key settings
-- **demo-advanced/** - Full config editor: modify complete JSON/Python configuration
-
-## Usage
-
-Each demo can be opened directly in a web browser:
-- `demo-simple/index.html`
-- `demo-intermediate/index.html` 
-- `demo-advanced/index.html`
-
-Note: These are frontend prototypes only - no backend integration included.
+Older standalone HTML prototypes (if still present elsewhere in the repo) were only front-end sketches without API integration.

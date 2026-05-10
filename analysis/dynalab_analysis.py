@@ -798,6 +798,692 @@ def analyze_pca(
     }
 
 
+# ---------------------------------------------------------------------------
+# Engine bridge: surfaces upside_engine outputs (energies, named values)
+# alongside mdtraj-based geometry.
+# ---------------------------------------------------------------------------
+
+def _load_engine_outputs(
+    traj: md.Trajectory,
+    config_path: str,
+    outputs: dict | None = None,
+    named_values: dict | None = None,
+) -> dict | None:
+    """Thin wrapper around ``py/mdtraj_upside.compute_upside_values``.
+
+    Returns ``{'energy': (T,), 'rama_pot': (T, n_res), ...}`` if the engine
+    is importable AND ``config_path`` exists; returns ``None`` otherwise so
+    callers can gracefully degrade to a pure-geometry analysis.
+    """
+    if not config_path or not Path(config_path).is_file():
+        return None
+    py_dir = Path(__file__).resolve().parent.parent / "py"
+    if str(py_dir) not in sys.path:
+        sys.path.insert(0, str(py_dir))
+    try:
+        from mdtraj_upside import compute_upside_values  # type: ignore
+        return compute_upside_values(
+            config_path, traj,
+            outputs=outputs or {},
+            named_values=named_values or {},
+        )
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Burial scan (Phase 1.3)
+# ---------------------------------------------------------------------------
+
+def analyze_burial_scan(traj: md.Trajectory, output_path: str, **_kwargs) -> dict:
+    """Per-residue burial vs. solvent exposure through the trajectory.
+
+    For each frame we count how many CB atoms (or CA for glycine) are within
+    8 A of every other CB. That count is a coarse-grained "buriedness" score:
+    deeply buried hydrophobic cores have ~10-15 neighbours, surface residues
+    have 2-5. Plotting this matrix as a heat-map (residue x time) shows
+    *exactly* which buried sites become exposed when the protein is pulled --
+    which is the signature of a cryptic epitope candidate.
+    """
+    centers = []
+    residue_labels = []
+    for residue in traj.topology.residues:
+        cb = next((a for a in residue.atoms if a.name == "CB"), None)
+        if cb is None:
+            cb = next((a for a in residue.atoms if a.name == "CA"), None)
+        if cb is None:
+            continue
+        centers.append(cb.index)
+        residue_labels.append(residue.resSeq)
+    if len(centers) < 2:
+        raise ValueError("Need at least 2 CB/CA atoms for burial scan")
+
+    pairs = np.array([(i, j) for i in centers for j in centers if i != j])
+    distances = md.compute_distances(traj, pairs) * 10.0  # nm -> A
+    n_centers = len(centers)
+    # per-frame neighbor count for each center (within 8 A)
+    cutoff = 8.0
+    in_contact = (distances <= cutoff).reshape(traj.n_frames, n_centers, n_centers - 1)
+    burial = in_contact.sum(axis=2).astype(float)  # (T, N)
+
+    # Detect "exposure events": delta between final-state and initial-state burial
+    initial = burial[: max(1, traj.n_frames // 20)].mean(axis=0)
+    final = burial[-max(1, traj.n_frames // 20):].mean(axis=0)
+    exposure = initial - final  # positive = became more exposed
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8),
+                             gridspec_kw={"height_ratios": [3, 1]})
+    im = axes[0].imshow(
+        burial.T, aspect="auto", cmap="viridis", interpolation="nearest", origin="lower",
+    )
+    axes[0].set_ylabel("Residue index")
+    axes[0].set_xlabel("Frame")
+    axes[0].set_title("Per-residue burial (number of CB neighbours within 8 A)")
+    plt.colorbar(im, ax=axes[0], label="Neighbours")
+
+    axes[1].bar(np.arange(n_centers), exposure, color="C3")
+    axes[1].axhline(0, color="black", linewidth=0.5)
+    axes[1].set_xlabel("Residue index")
+    axes[1].set_ylabel("Exposure")
+    axes[1].set_title("Exposure (initial burial - final burial). Positive = became exposed.")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+    top_n = min(10, n_centers)
+    top_idx = np.argsort(exposure)[::-1][:top_n]
+    return {
+        "name": "Burial Scan",
+        "description": (
+            "Tracks which residues become solvent-exposed under tension. "
+            "The bottom panel highlights candidates: residues with the "
+            "biggest drop in neighbour count are the strongest cryptic-epitope leads."
+        ),
+        "image": output_path,
+        "stats": {
+            "n_residues":          int(n_centers),
+            "max_exposure_delta":  float(np.max(exposure)),
+            "mean_initial_burial": float(np.mean(initial)),
+            "mean_final_burial":   float(np.mean(final)),
+            "top_exposure_residues": [
+                {"residue": int(residue_labels[int(i)]),
+                 "delta":   float(exposure[int(i)])}
+                for i in top_idx
+            ],
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Dihedral unfolding (Phase 1.3)
+# ---------------------------------------------------------------------------
+
+def _phi_psi_per_frame(traj: md.Trajectory) -> tuple:
+    phi_idx, phi = md.compute_phi(traj)
+    psi_idx, psi = md.compute_psi(traj)
+    return phi, psi, phi_idx, psi_idx
+
+
+def analyze_dihedral_unfolding(traj: md.Trajectory, output_path: str, **_kwargs) -> dict:
+    """Track Ramachandran-region drift during pulling.
+
+    For each residue we compute phi/psi every frame, then assign each frame
+    to one of three Ramachandran basins -- alpha (helix), beta (sheet), or
+    "left/coil" -- using simple angle ranges. Plotting the per-residue
+    fraction-in-helix at the start vs. end of the trajectory reveals which
+    secondary-structure elements are breaking under tension.
+    """
+    phi, psi, phi_idx, psi_idx = _phi_psi_per_frame(traj)
+    if phi.size == 0 or psi.size == 0:
+        raise RuntimeError("Could not compute phi/psi - too few residues?")
+
+    # Align indices: phi_idx[k][1] == psi_idx[k][2] for the same residue
+    phi_res = [traj.topology.atom(int(quad[1])).residue.resSeq for quad in phi_idx]
+    psi_res = [traj.topology.atom(int(quad[2])).residue.resSeq for quad in psi_idx]
+    common_res = sorted(set(phi_res).intersection(psi_res))
+    phi_pos = {r: phi_res.index(r) for r in common_res}
+    psi_pos = {r: psi_res.index(r) for r in common_res}
+    phi_arr = np.stack([phi[:, phi_pos[r]] for r in common_res], axis=1)
+    psi_arr = np.stack([psi[:, psi_pos[r]] for r in common_res], axis=1)
+
+    def _basin(phi_v, psi_v):
+        """Return 0 = alpha, 1 = beta, 2 = other."""
+        phi_deg = np.degrees(phi_v)
+        psi_deg = np.degrees(psi_v)
+        is_alpha = (phi_deg < 0) & (psi_deg > -100) & (psi_deg < 60)
+        is_beta = (phi_deg < 0) & ((psi_deg > 60) | (psi_deg < -100))
+        out = np.full(phi_deg.shape, 2, dtype=int)
+        out[is_alpha] = 0
+        out[is_beta] = 1
+        return out
+
+    basin = _basin(phi_arr, psi_arr)            # (T, N_res)
+    early = basin[: max(1, basin.shape[0] // 10)]
+    late = basin[-max(1, basin.shape[0] // 10):]
+    helix_early = (early == 0).mean(axis=0)
+    helix_late = (late == 0).mean(axis=0)
+    sheet_early = (early == 1).mean(axis=0)
+    sheet_late = (late == 1).mean(axis=0)
+
+    delta_helix = helix_early - helix_late
+    delta_sheet = sheet_early - sheet_late
+    delta_struct = delta_helix + delta_sheet  # positive = lost structure
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
+    width = 0.4
+    x = np.arange(len(common_res))
+    axes[0].bar(x - width / 2, helix_early, width=width, color="#e53e3e", label="Helix early", alpha=0.85)
+    axes[0].bar(x + width / 2, helix_late,  width=width, color="#9f1239", label="Helix late",  alpha=0.85)
+    axes[0].set_ylabel("Fraction")
+    axes[0].set_title("Per-residue helix occupancy: start vs. end of trajectory")
+    axes[0].legend()
+    axes[1].bar(x, delta_struct, color="#3b82f6")
+    axes[1].axhline(0, color="black", linewidth=0.5)
+    axes[1].set_ylabel("Delta (early - late)")
+    axes[1].set_xlabel("Residue position")
+    axes[1].set_title("Per-residue secondary-structure loss (positive = lost helix or sheet)")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+    return {
+        "name": "Dihedral Unfolding",
+        "description": (
+            "Per-residue fraction of frames in helix vs. sheet basins, comparing "
+            "start to end of the trajectory. Residues with large positive delta "
+            "lost their secondary structure under tension - flagging them as "
+            "candidates for a cryptic epitope."
+        ),
+        "image": output_path,
+        "stats": {
+            "n_residues":         int(len(common_res)),
+            "max_helix_loss":     float(np.max(delta_helix)),
+            "max_sheet_loss":     float(np.max(delta_sheet)),
+            "mean_struct_loss":   float(np.mean(delta_struct)),
+            "max_struct_loss":    float(np.max(delta_struct)),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Intermediate-state clustering (Phase 1.3)
+# ---------------------------------------------------------------------------
+
+def analyze_intermediate_clustering(
+    traj: md.Trajectory,
+    output_path: str,
+    n_clusters: int = 4,
+    out_pdb_dir: str | None = None,
+    **_kwargs,
+) -> dict:
+    """Cluster the trajectory into ``n_clusters`` mechanical intermediates.
+
+    Strategy:
+      1. Compute a CA-contact PCA via ``py/mdtraj_upside.ca_contact_pca``.
+      2. K-means cluster in PC-space, ordered by mean CA-RMSD from frame 0.
+      3. Pick a representative frame per cluster (kernel-density mode).
+      4. Save each representative as ``intermediate_<i>.pdb`` to
+         ``out_pdb_dir`` (defaults to the parent ``intermediates/`` dir of
+         the analysis dir).
+
+    These PDBs are exactly what Phase 2 (back-mapping) and Phase 3 (AI
+    nanobody design) consume.
+    """
+    if traj.n_frames < n_clusters * 3:
+        raise ValueError(
+            f"Need at least {n_clusters * 3} frames for {n_clusters}-cluster KMeans "
+            f"(have {traj.n_frames})"
+        )
+    n_clusters = max(2, int(n_clusters))
+
+    py_dir = Path(__file__).resolve().parent.parent / "py"
+    if str(py_dir) not in sys.path:
+        sys.path.insert(0, str(py_dir))
+    from mdtraj_upside import (  # type: ignore
+        ca_contact_pca, kmeans_cluster, pick_all_representative_points,
+    )
+
+    pcs = ca_contact_pca(traj, n_pc=min(5, max(2, n_clusters)))
+    rmsd = md.rmsd(traj, traj, 0) * 10.0
+    labels = kmeans_cluster(pcs, rmsd, n_clusters)
+    rep_idx = pick_all_representative_points(pcs, labels)
+
+    if out_pdb_dir is None:
+        out_pdb_dir = Path(output_path).resolve().parent.parent / "intermediates"
+    out_pdb_dir = Path(out_pdb_dir)
+    out_pdb_dir.mkdir(parents=True, exist_ok=True)
+
+    saved = []
+    for ci, frame_idx in enumerate(rep_idx):
+        pdb_path = out_pdb_dir / f"intermediate_{ci:02d}.pdb"
+        traj.slice(int(frame_idx)).save_pdb(str(pdb_path))
+        saved.append({
+            "cluster":      int(ci),
+            "frame":        int(frame_idx),
+            "rmsd_from_0":  float(rmsd[int(frame_idx)]),
+            "size":         int((labels == ci).sum()),
+            "pdb":          pdb_path.name,
+        })
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    if pcs.shape[1] >= 2:
+        sc = axes[0].scatter(pcs[:, 0], pcs[:, 1], c=labels, cmap="tab10", alpha=0.7, s=10)
+        for ci, frame_idx in enumerate(rep_idx):
+            axes[0].scatter(pcs[int(frame_idx), 0], pcs[int(frame_idx), 1],
+                            c="black", s=120, marker="x")
+            axes[0].annotate(f"{ci}", (pcs[int(frame_idx), 0], pcs[int(frame_idx), 1]),
+                             color="black", fontsize=11)
+        axes[0].set_xlabel("PC1 (contact map)")
+        axes[0].set_ylabel("PC2 (contact map)")
+        axes[0].set_title("Trajectory in contact-map PC space (X = representative)")
+        plt.colorbar(sc, ax=axes[0], label="Cluster")
+
+    counts = np.bincount(labels, minlength=n_clusters)
+    axes[1].bar(np.arange(n_clusters), counts, color="C0")
+    axes[1].set_xlabel("Cluster (sorted by mean RMSD from native)")
+    axes[1].set_ylabel("Frames in cluster")
+    axes[1].set_title("Cluster sizes")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+    return {
+        "name": "Intermediate Clustering",
+        "description": (
+            f"K-means ({n_clusters} clusters) on contact-map PC space. The "
+            f"representative frame from each cluster is saved as a PDB to "
+            f"{out_pdb_dir}, ready for back-mapping (Phase 2) and AI binder "
+            "design (Phase 3)."
+        ),
+        "image": output_path,
+        "stats": {
+            "n_clusters":          n_clusters,
+            "n_frames":            int(traj.n_frames),
+            "intermediates_saved": saved,
+            "out_pdb_dir":         str(out_pdb_dir),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Epitope-candidate rollup over a force sweep (Phase 1.3)
+# ---------------------------------------------------------------------------
+
+def _per_force_burial(traj: md.Trajectory) -> tuple:
+    """Return (residue_labels, exposure_per_residue) for ranking under tension."""
+    centers = []
+    labels = []
+    for residue in traj.topology.residues:
+        cb = next((a for a in residue.atoms if a.name == "CB"), None)
+        if cb is None:
+            cb = next((a for a in residue.atoms if a.name == "CA"), None)
+        if cb is None:
+            continue
+        centers.append(cb.index)
+        labels.append(residue.resSeq)
+    if len(centers) < 2:
+        raise ValueError("Not enough CB/CA atoms for burial calculation")
+    pairs = np.array([(i, j) for i in centers for j in centers if i != j])
+    distances = md.compute_distances(traj, pairs) * 10.0
+    n_centers = len(centers)
+    in_contact = (distances <= 8.0).reshape(traj.n_frames, n_centers, n_centers - 1)
+    burial = in_contact.sum(axis=2).astype(float)
+    initial = burial[: max(1, traj.n_frames // 20)].mean(axis=0)
+    final = burial[-max(1, traj.n_frames // 20):].mean(axis=0)
+    return labels, initial - final
+
+
+def analyze_epitope_candidates_sweep(
+    sweep_dir: str,
+    output_path: str,
+    **_kwargs,
+) -> dict:
+    """Rank residues by force-dependent exposure across a sweep.
+
+    For each force value in the sweep manifest, average the burial-exposure
+    delta across replicas. A force-monotone increase in exposure flags the
+    residue as a strong cryptic epitope candidate.
+    """
+    sweep_path = Path(sweep_dir)
+    manifest_file = sweep_path / "manifest.json"
+    if not manifest_file.is_file():
+        raise FileNotFoundError(f"No manifest at {manifest_file}")
+    manifest = json.loads(manifest_file.read_text())
+    sub_jobs = manifest.get("sub_jobs", [])
+    if not sub_jobs:
+        raise ValueError("Manifest has no sub_jobs")
+
+    # group by force
+    by_force: dict = {}
+    for s in sub_jobs:
+        if s.get("status") != "completed":
+            continue
+        traj_path = sweep_path / s["sub_dir"] / "outputs" / "sim" / "sim.run.up"
+        if not traj_path.is_file():
+            continue
+        by_force.setdefault(float(s["force_pn"]), []).append(traj_path)
+
+    if not by_force:
+        raise RuntimeError("No completed sub-jobs with trajectories in sweep")
+
+    forces = sorted(by_force.keys())
+    per_force_residues = None
+    exposure_matrix = []
+    for f in forces:
+        replica_exposures = []
+        for traj_path in by_force[f]:
+            traj = load_upside_traj(str(traj_path))
+            residues, exposure = _per_force_burial(traj)
+            if per_force_residues is None:
+                per_force_residues = residues
+            elif len(residues) != len(per_force_residues):
+                raise RuntimeError("Residue counts differ across replicas")
+            replica_exposures.append(exposure)
+        exposure_matrix.append(np.mean(np.stack(replica_exposures), axis=0))
+    exposure_matrix = np.stack(exposure_matrix, axis=0)  # (n_forces, n_residues)
+
+    # Score: max exposure across forces + correlation with force (monotonicity)
+    correlations = []
+    forces_arr = np.array(forces)
+    for r in range(exposure_matrix.shape[1]):
+        col = exposure_matrix[:, r]
+        if np.std(col) < 1e-9:
+            correlations.append(0.0)
+        else:
+            correlations.append(float(np.corrcoef(forces_arr, col)[0, 1]))
+    correlations = np.array(correlations)
+    max_exposure = exposure_matrix.max(axis=0)
+    # Combined score: high & monotone with force
+    score = max_exposure * np.clip(correlations, 0, None)
+    ranked = np.argsort(score)[::-1]
+    top = ranked[: min(15, len(ranked))]
+
+    fig, axes = plt.subplots(2, 1, figsize=(14, 9),
+                             gridspec_kw={"height_ratios": [2, 1]})
+    im = axes[0].imshow(
+        exposure_matrix, aspect="auto", cmap="magma",
+        extent=[0, exposure_matrix.shape[1], forces[0], forces[-1]], origin="lower",
+    )
+    axes[0].set_xlabel("Residue index")
+    axes[0].set_ylabel("Force (pN)")
+    axes[0].set_title("Force-dependent exposure (per force, averaged across replicas)")
+    plt.colorbar(im, ax=axes[0], label="Exposure delta")
+
+    axes[1].bar(np.arange(len(score)), score, color="#3b82f6")
+    for rank, residue_idx in enumerate(top):
+        axes[1].annotate(
+            f"{per_force_residues[int(residue_idx)]}",
+            (int(residue_idx), score[int(residue_idx)]),
+            color="black", fontsize=9,
+        )
+    axes[1].set_xlabel("Residue index")
+    axes[1].set_ylabel("Epitope score (exposure x force-corr)")
+    axes[1].set_title("Top-ranked cryptic-epitope candidates")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+    return {
+        "name": "Epitope Candidates",
+        "description": (
+            "Per-residue exposure across the force sweep, ranked by a "
+            "combined score (peak exposure * positive correlation with force). "
+            "Residues at the top of the ranking are the strongest leads for "
+            "cryptic epitope binders."
+        ),
+        "image": output_path,
+        "stats": {
+            "forces_pn":          forces,
+            "n_residues":         int(len(per_force_residues)),
+            "top_candidates": [
+                {"rank":      int(rank),
+                 "residue":   int(per_force_residues[int(idx)]),
+                 "score":     float(score[int(idx)]),
+                 "max_expose": float(max_exposure[int(idx)]),
+                 "force_corr": float(correlations[int(idx)])}
+                for rank, idx in enumerate(top)
+            ],
+        },
+    }
+
+
+def analyze_burial_scan_sweep(
+    sweep_dir: str,
+    output_path: str,
+    **_kwargs,
+) -> dict:
+    """Per-force burial heat-map averaged across replicas."""
+    sweep_path = Path(sweep_dir)
+    manifest = json.loads((sweep_path / "manifest.json").read_text())
+    by_force: dict = {}
+    for s in manifest.get("sub_jobs", []):
+        if s.get("status") != "completed":
+            continue
+        p = sweep_path / s["sub_dir"] / "outputs" / "sim" / "sim.run.up"
+        if p.is_file():
+            by_force.setdefault(float(s["force_pn"]), []).append(p)
+    if not by_force:
+        raise RuntimeError("No completed sub-jobs in sweep")
+
+    forces = sorted(by_force.keys())
+    rows = []
+    residues = None
+    for f in forces:
+        replica_means = []
+        for traj_path in by_force[f]:
+            traj = load_upside_traj(str(traj_path))
+            res, exposure = _per_force_burial(traj)
+            if residues is None:
+                residues = res
+            replica_means.append(exposure)
+        rows.append(np.mean(np.stack(replica_means), axis=0))
+    matrix = np.stack(rows, axis=0)
+
+    plt.figure(figsize=(14, 6))
+    plt.imshow(matrix, aspect="auto", cmap="magma",
+               extent=[0, matrix.shape[1], forces[0], forces[-1]], origin="lower")
+    plt.xlabel("Residue index")
+    plt.ylabel("Force (pN)")
+    plt.title("Force-dependent burial exposure (sweep)")
+    plt.colorbar(label="Exposure")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    return {
+        "name": "Burial Sweep",
+        "image": output_path,
+        "description": "Per-force burial-exposure averaged across replicas.",
+        "stats": {"forces_pn": forces, "n_residues": int(matrix.shape[1])},
+    }
+
+
+def analyze_intermediate_clustering_sweep(
+    sweep_dir: str,
+    output_path: str,
+    n_clusters: int = 4,
+    **_kwargs,
+) -> dict:
+    """Cluster all sweep frames jointly and dump representative PDBs to ``intermediates/``."""
+    sweep_path = Path(sweep_dir)
+    manifest = json.loads((sweep_path / "manifest.json").read_text())
+    sub = [s for s in manifest.get("sub_jobs", []) if s.get("status") == "completed"]
+    if not sub:
+        raise RuntimeError("No completed sub-jobs to cluster")
+
+    job_dir = sweep_path.parent.parent           # jobs/<job_id>/sweeps/<sweep_id>/.. -> jobs/<job_id>
+    inter_dir = job_dir / "intermediates"
+    inter_dir.mkdir(exist_ok=True)
+
+    trajs = []
+    sub_force = []
+    for s in sub:
+        p = sweep_path / s["sub_dir"] / "outputs" / "sim" / "sim.run.up"
+        if not p.is_file():
+            continue
+        t = load_upside_traj(str(p))
+        trajs.append(t)
+        sub_force.append(float(s["force_pn"]))
+
+    if not trajs:
+        raise RuntimeError("No trajectories loaded")
+
+    combined = trajs[0]
+    for t in trajs[1:]:
+        combined = combined.join(t, check_topology=False)
+
+    return analyze_intermediate_clustering(
+        combined, output_path, n_clusters=n_clusters,
+        out_pdb_dir=str(inter_dir),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Force-binding comparison (Phase 4)
+# ---------------------------------------------------------------------------
+
+def analyze_force_binding_comparison(
+    csv_path: str,
+    output_path: str,
+    predicted_threshold_pn: float,
+    **_kwargs,
+) -> dict:
+    """Plot wet-lab fluorescence vs. centrifuge force, overlaid with the
+    Upside-predicted exposure threshold.
+
+    Expected CSV columns: ``force_pN``, ``fluorescence``, ``replicate``, ``condition``.
+    Conditions ``primary``, ``no-spin``, ``scrambled-cdr``, ``disulfide-stapled`` are
+    plotted distinctly. Returns a dict with the inferred experimental
+    threshold, predicted threshold, and effect sizes.
+    """
+    import csv as _csv
+    from collections import defaultdict
+    rows = []
+    with open(csv_path) as f:
+        reader = _csv.DictReader(f)
+        for r in reader:
+            try:
+                rows.append({
+                    "force_pN":     float(r["force_pN"]),
+                    "fluorescence": float(r["fluorescence"]),
+                    "replicate":    int(r["replicate"]),
+                    "condition":    r["condition"].strip(),
+                })
+            except (KeyError, ValueError):
+                continue
+    if not rows:
+        raise ValueError("CSV had no usable rows")
+
+    by_cond = defaultdict(list)
+    for r in rows:
+        by_cond[r["condition"]].append(r)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    palette = {
+        "primary":           ("#3b82f6", "Primary binder"),
+        "no-spin":           ("#9ca3af", "No-spin control (zero force)"),
+        "scrambled-cdr":     ("#f59e0b", "Scrambled-CDR (negative)"),
+        "disulfide-stapled": ("#10b981", "Disulfide-stapled (negative)"),
+    }
+    threshold_inferred = None
+    fluor_at_zero = None
+    primary = None
+    for cond, items in by_cond.items():
+        forces = np.array([r["force_pN"] for r in items])
+        fluor = np.array([r["fluorescence"] for r in items])
+        order = np.argsort(forces)
+        forces, fluor = forces[order], fluor[order]
+        color, label = palette.get(cond, ("#6366f1", cond))
+        ax.plot(forces, fluor, "o-", color=color, label=label, alpha=0.85)
+        if cond == "primary":
+            primary = (forces, fluor)
+        if cond == "no-spin":
+            fluor_at_zero = float(np.mean(fluor))
+
+    if primary is not None:
+        forces, fluor = primary
+        # Half-max threshold: midpoint of fluorescence dynamic range
+        baseline = float(fluor_at_zero) if fluor_at_zero is not None else float(fluor.min())
+        peak = float(fluor.max())
+        if peak > baseline + 1e-9:
+            half_max = (peak + baseline) / 2.0
+            above = np.where(fluor >= half_max)[0]
+            if len(above) > 0:
+                threshold_inferred = float(forces[above[0]])
+
+    if threshold_inferred is not None:
+        ax.axvline(threshold_inferred, linestyle="--", color="#3b82f6",
+                   label=f"Experimental threshold ~ {threshold_inferred:.1f} pN")
+    ax.axvline(predicted_threshold_pn, linestyle=":", color="#dc2626",
+               label=f"Upside-predicted threshold = {predicted_threshold_pn:.1f} pN")
+    ax.set_xlabel("Centrifuge force (pN)")
+    ax.set_ylabel("Fluorescence (a.u.)")
+    ax.set_title("Force-dependent binding: wet-lab vs. Upside prediction")
+    ax.legend(loc="best", fontsize="small")
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+    return {
+        "name": "Force-binding comparison",
+        "description": (
+            "Wet-lab fluorescence vs. centrifuge force overlaid with the "
+            "Upside-predicted activation threshold. Strong primary signal "
+            "above predicted threshold + flat negative controls = validated "
+            "cryptic-epitope binder."
+        ),
+        "image": output_path,
+        "stats": {
+            "predicted_threshold_pn":   float(predicted_threshold_pn),
+            "experimental_threshold_pn": threshold_inferred,
+            "delta_pn": (None if threshold_inferred is None
+                          else abs(float(threshold_inferred) - float(predicted_threshold_pn))),
+            "n_rows":     int(len(rows)),
+            "conditions": sorted(by_cond.keys()),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Sweep-level dispatcher
+# ---------------------------------------------------------------------------
+
+SWEEP_ANALYSES = {
+    "epitope_candidates": ("EpitopeCandidates.png",      analyze_epitope_candidates_sweep),
+    "burial_sweep":       ("BurialSweep.png",            analyze_burial_scan_sweep),
+    "intermediates":      ("IntermediateClustering.png", analyze_intermediate_clustering_sweep),
+}
+
+
+def run_sweep_analyses(
+    sweep_dir: str,
+    output_dir: str,
+    analyses: list,
+    params: dict | None = None,
+) -> dict:
+    """Run the sweep-level rollup analyses requested by the API.
+
+    Each function takes ``(sweep_dir, output_path, **kwargs)`` rather than
+    a pre-loaded mdtraj.Trajectory because they have to walk the sweep
+    manifest themselves.
+    """
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    params = params or {}
+    results = {}
+    for key in analyses:
+        if key not in SWEEP_ANALYSES:
+            results[key] = {"error": f"Unknown sweep analysis '{key}'"}
+            continue
+        filename, func = SWEEP_ANALYSES[key]
+        try:
+            kwargs = dict(params.get(key, {}))
+            results[key] = func(str(sweep_dir), str(out / filename), **kwargs)
+        except Exception as exc:
+            results[key] = {"error": f"{type(exc).__name__}: {exc}"}
+    return results
+
+
 def analyze_force_extension(
     traj: md.Trajectory,
     output_path: str,
@@ -925,18 +1611,21 @@ def analyze_force_extension(
 # ---------------------------------------------------------------------------
 
 ANALYSES = {
-    "rg":           ("Rg.png",                analyze_rg),
-    "rmsd":         ("RMSD.png",              analyze_rmsd),
-    "rmsf":         ("RMSF.png",              analyze_rmsf),
-    "e2e":          ("EndToEnd.png",          analyze_e2e),
-    "contacts":     ("ContactMap.png",        analyze_contacts),
-    "hbonds":       ("HBonds.png",            analyze_hbonds),
-    "salt_bridges": ("SaltBridges.png",       analyze_salt_bridges),
-    "shape":        ("Shape.png",             analyze_shape),
-    "cross_corr":   ("CrossCorrelation.png",  analyze_cross_correlation),
-    "ss":           ("SecondaryStructure.png", analyze_secondary_structure),
-    "pca":          ("PCA.png",               analyze_pca),
-    "force_ext":    ("ForceExtension.png",    analyze_force_extension),
+    "rg":              ("Rg.png",                  analyze_rg),
+    "rmsd":            ("RMSD.png",                analyze_rmsd),
+    "rmsf":            ("RMSF.png",                analyze_rmsf),
+    "e2e":             ("EndToEnd.png",            analyze_e2e),
+    "contacts":        ("ContactMap.png",          analyze_contacts),
+    "hbonds":          ("HBonds.png",              analyze_hbonds),
+    "salt_bridges":    ("SaltBridges.png",         analyze_salt_bridges),
+    "shape":           ("Shape.png",               analyze_shape),
+    "cross_corr":      ("CrossCorrelation.png",    analyze_cross_correlation),
+    "ss":              ("SecondaryStructure.png",  analyze_secondary_structure),
+    "pca":             ("PCA.png",                 analyze_pca),
+    "force_ext":       ("ForceExtension.png",      analyze_force_extension),
+    "burial_scan":     ("BurialScan.png",          analyze_burial_scan),
+    "dihedral":        ("DihedralUnfolding.png",   analyze_dihedral_unfolding),
+    "intermediates":   ("IntermediateClustering.png", analyze_intermediate_clustering),
 }
 
 

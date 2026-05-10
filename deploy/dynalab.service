@@ -1,0 +1,31 @@
+[Unit]
+Description=DynaLab Flask backend (Upside2 + AI binder design)
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/dynalab/env
+WorkingDirectory=/opt/dynalab
+
+# Run the same Dockerfile we use for development. Bind-mount the EBS
+# volume into the container's job directory so traj artifacts survive
+# restarts. Map only 127.0.0.1 - the public listener is provided by
+# nginx/Caddy in front of this service.
+ExecStartPre=-/usr/bin/docker rm -f dynalab
+ExecStart=/usr/bin/docker run --rm --name dynalab \
+    -p 127.0.0.1:5001:5001 \
+    -v /var/lib/dynalab/jobs:/opt/dynalab/web/server/jobs \
+    -e TAMARIND_API_KEY \
+    -e TAMARIND_API_URL \
+    -e UPSIDE_HOME \
+    dynalab:latest \
+    /opt/conda/envs/upside2-env/bin/python /opt/dynalab/web/server/app.py
+
+ExecStop=/usr/bin/docker stop dynalab
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

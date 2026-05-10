@@ -37,6 +37,11 @@ dependencies:
 
   # --- Web server backend (web/server/app.py) ---
   - flask>=3.0
+  # HTTP client used by design/tamarind_client.py (Phase 3 AI binder design).
+  # The mock client at design/tamarind_mock.py doesn't need this, but having
+  # it baked in means switching to the real Tamarind API is a Settings-page
+  # toggle, no extra install required.
+  - requests
 
   # --- Machine learning (used by analysis/dynalab_analysis.py PCA step) ---
   - scikit-learn
