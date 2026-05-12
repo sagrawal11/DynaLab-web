@@ -17,10 +17,10 @@ Concurrency: at most ``cpu_count() // 2`` sub-jobs run simultaneously, so the
 host stays responsive. Override with ``--max-parallel``.
 
 Force conversion: the user provides forces in piconewtons. They are converted
-to Upside reduced-force units using ``analysis/calibration.json`` if present,
-falling back to ``41.4 pN/upside-force`` otherwise (the default in
-``analyze_force_extension``). The orchestrator writes the chosen factor into
-the manifest so analyses that read it later are consistent.
+to Upside reduced-force units using ``analysis/force_calibration.py`` (which
+reads ``analysis/calibration.json`` when present, else default ``41.4``). The
+orchestrator writes the chosen factor into the manifest so analyses stay
+consistent.
 
 Usage::
 
@@ -39,6 +39,7 @@ Usage::
 
 import argparse
 import concurrent.futures
+import importlib.util
 import json
 import os
 import shutil
@@ -53,16 +54,30 @@ _MANIFEST_LOCK = threading.Lock()
 
 
 def _read_calibration_factor(upside_home: Path) -> float:
-    """Return ``pN per upside-force unit``, defaulting to 41.4 if not calibrated."""
-    cal_file = upside_home / "analysis" / "calibration.json"
-    if cal_file.is_file():
-        try:
-            data = json.loads(cal_file.read_text())
-            if "factor_pn_per_upside_force" in data:
-                return float(data["factor_pn_per_upside_force"])
-        except Exception:
-            pass
-    return 41.4
+    """Return ``pN per upside-force unit`` (see ``force_calibration.pn_per_upside_force_unit``)."""
+    mod = _load_force_calibration_module(upside_home)
+    if mod is None:
+        return 41.4
+    try:
+        return float(mod.pn_per_upside_force_unit())
+    except Exception:
+        return 41.4
+
+
+def _load_force_calibration_module(upside_home: Path):
+    """Load ``analysis/force_calibration.py`` from the repo rooted at ``upside_home``, or None."""
+    fc_path = upside_home.resolve() / "analysis" / "force_calibration.py"
+    if not fc_path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("_dynalab_fc_sweep", fc_path)
+    if spec is None or spec.loader is None:
+        return None
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
 
 
 def _resolve_pull_residue(pdb_path: Path, pull_residue: int) -> int:
@@ -226,6 +241,7 @@ def main() -> int:
     manifest_path.write_text(json.dumps(manifest, indent=2))
 
     # Pre-write the per-sub-job .dat files so the simulation can find them.
+    fc_mod = _load_force_calibration_module(upside_home)
     for entry in sub_jobs:
         sub = sweep_dir / entry["sub_dir"]
         sub.mkdir(parents=True, exist_ok=True)
@@ -238,6 +254,11 @@ def main() -> int:
             # at N steps; this is approximate but consistent across replicas.
             vel_z = -0.001  # default per existing Velocity_Simulations.dat
             _write_velocity_dat(sub, anchor, puller, vel_z)
+        if fc_mod is not None:
+            try:
+                fc_mod.write_force_calibration_sidecar(sub, factor)
+            except Exception:
+                pass
 
     # Run with bounded parallelism.
     failures = 0

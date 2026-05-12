@@ -1500,7 +1500,12 @@ def analyze_force_extension(
     if not traj_file:
         raise ValueError("force_extension needs the path to the .run.up file")
 
-    UPSIDE_TO_PN = 41.4
+    try:
+        from force_calibration import pn_per_upside_force_unit_near_trajectory
+
+        upside_to_pn = pn_per_upside_force_unit_near_trajectory(traj_file)
+    except Exception:
+        upside_to_pn = 41.4
 
     afm_path = None
     traj_path = Path(traj_file).resolve()
@@ -1574,7 +1579,7 @@ def analyze_force_extension(
     for s in springs:
         pos = pos_by_atom[(s["atom_idx"], s["dim"])]
         tip = tip_pos[:, s["spring_idx"], s["dim"]]
-        force = s["k"] * (tip - pos) * UPSIDE_TO_PN
+        force = s["k"] * (tip - pos) * upside_to_pn
         extension = pos - pos[0]
         label = f"Res {s['residue']} ({s['dim_name']})"
         plt.plot(extension, force, linewidth=1.5, label=label)

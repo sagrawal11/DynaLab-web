@@ -1,7 +1,15 @@
-import sys,os
+import sys
+import os
+from pathlib import Path
+
 import numpy as np
 import tables as tb
 import matplotlib.pyplot as plt
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_analysis = _REPO_ROOT / "analysis"
+if _analysis.is_dir() and str(_analysis) not in sys.path:
+    sys.path.insert(0, str(_analysis))
 
 def _output_groups(t):
     i=0
@@ -11,8 +19,6 @@ def _output_groups(t):
     if 'output' in t.root:
         yield t.get_node('/output')
         i += 1
-
-upside_to_pN   = 41.4
 
 #-------------------------------------
 
@@ -35,6 +41,18 @@ h5_files   = []
 for j in range(n_rep): 
     h5_file = "{}/{}.run.{}.up".format(run_dir, pdb_id, j)
     h5_files.append(h5_file)
+
+try:
+    from force_calibration import pn_per_upside_force_unit_near_trajectory
+
+    upside_to_pN = pn_per_upside_force_unit_near_trajectory(h5_files[0])
+except Exception:
+    try:
+        from force_calibration import pn_per_upside_force_unit
+
+        upside_to_pN = pn_per_upside_force_unit()
+    except Exception:
+        upside_to_pN = 41.4
 
 #-------------------------------------
 

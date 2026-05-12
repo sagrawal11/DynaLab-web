@@ -97,8 +97,8 @@ window.DYNALAB_HELP_CONTENT = {
   },
   "pulling_tension_config": {
     "title": "Constant tension fields",
-    "overviewHtml": "<p>Each row lists a residue and a tension vector <strong>(tx, ty, tz)</strong> in kT/Å units used internally.</p><p>Multiple rows can implement opposed pulls: anchor one end, tug the other.</p>",
-    "detailHtml": "<p>Constant tension does not magically know your centrifuge lane calibration; pN targets in sweeps are converted using documented factors elsewhere in the pipeline.</p><p>Vectors mean direction matters: pulling along z versus x can sample different unfolding pathways.</p><p>If nothing moves, tension might be tiny relative to internal forces; if everything explodes, tension or timestep may be too aggressive.</p>"
+    "overviewHtml": "<p>Each row lists a residue and a tension vector <strong>(tx, ty, tz)</strong>. By default these are Upside reduced units (kT/Å). Check <strong>Interpret tx, ty, tz as pN</strong> to enter lab-style pN; the server converts using <code>analysis/force_calibration.py</code> (same factor as force sweeps).</p><p>Multiple rows can implement opposed pulls: anchor one end, tug the other.</p>",
+    "detailHtml": "<p>The conversion factor (pN per one Upside reduced-force unit) lives in <code>analysis/calibration.json</code> when you have calibrated it; otherwise a documented default is used. Each pulling run also writes <code>force_calibration_used.json</code> next to the job so later analyses match the factor at submit time.</p><p>Vectors mean direction matters: pulling along z versus x can sample different unfolding pathways.</p><p>If nothing moves, tension might be tiny relative to internal forces; if everything explodes, tension or timestep may be too aggressive.</p>"
   },
   "force_sweep": {
     "title": "Force sweep",

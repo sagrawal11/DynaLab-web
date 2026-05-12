@@ -200,22 +200,31 @@ def _write_velocity_dat(job_dir: Path, entries: list) -> None:
             )
 
 
-def _write_tension_dat(job_dir: Path, entries: list) -> None:
+def _write_tension_dat(
+    job_dir: Path,
+    entries: list,
+    *,
+    tension_in_pn: bool = False,
+) -> None:
     """Write Tension_Simulations.dat for constant-tension pulling.
 
-    Each entry has ``residue`` and the three force components ``tx``/``ty``/``tz``
-    (in Upside reduced units, kT/A). This is the centrifuge-equivalent
-    pulling mode (constant force, not velocity-clamp).
+    Each entry has ``residue`` and ``tx``/``ty``/``tz``. By default these are
+    Upside reduced units (kT/Å). If ``tension_in_pn`` is true, values are
+    treated as piconewtons and converted with
+    ``analysis/force_calibration.pn_per_upside_force_unit`` (Upside = pN / factor).
     """
+    inv = None
+    if tension_in_pn:
+        inv = 1.0 / float(_load_calibration_module().pn_per_upside_force_unit())
     with (job_dir / "Tension_Simulations.dat").open("w") as f:
         f.write("residue tension_x tension_y tension_z\n")
         for entry in entries:
-            f.write(
-                f"{int(entry['residue'])} "
-                f"{float(entry.get('tx', 0))} "
-                f"{float(entry.get('ty', 0))} "
-                f"{float(entry.get('tz', 0))}\n"
-            )
+            tx = float(entry.get("tx", 0))
+            ty = float(entry.get("ty", 0))
+            tz = float(entry.get("tz", 0))
+            if inv is not None:
+                tx, ty, tz = tx * inv, ty * inv, tz * inv
+            f.write(f"{int(entry['residue'])} {tx} {ty} {tz}\n")
 
 
 def _build_simulation_command(job_dir: Path, config: dict) -> tuple:
@@ -233,7 +242,11 @@ def _build_simulation_command(job_dir: Path, config: dict) -> tuple:
     # Constant-tension mode (centrifuge analog)
     tension_entries = config.get("tensionEntries") or []
     if config.get("enablePulling") and config.get("pullingMode") == "tension" and tension_entries:
-        _write_tension_dat(job_dir, tension_entries)
+        _write_tension_dat(
+            job_dir,
+            tension_entries,
+            tension_in_pn=bool(config.get("tensionInPiconewtons")),
+        )
         script = f"{UPSIDE_HOME}/start/Pulling_Simulations.py"
         cmd = [
             sys.executable, script, pdb_id, str(job_dir), sim_id,
@@ -265,6 +278,11 @@ def _run_simulation(job_id: str, config: dict) -> None:
     job_dir = JOBS_DIR / job_id
     log_file = job_dir / "sim.log"
     cmd, mode = _build_simulation_command(job_dir, config)
+    if mode in ("tension", "velocity"):
+        try:
+            _load_calibration_module().write_force_calibration_sidecar(job_dir)
+        except Exception:
+            pass
 
     _write_status(job_dir, job_id=job_id, status="running",
                   cmd=" ".join(cmd), pulling_mode=mode)
@@ -586,12 +604,7 @@ def get_calibration():
     cal_file = ANALYSIS_DIR / "calibration.json"
     if cal_file.exists():
         return jsonify(json.loads(cal_file.read_text()))
-    return jsonify({
-        "factor_pn_per_upside_force": 41.4,
-        "reference": "default (uncalibrated)",
-        "T": 0.85,
-        "note": "Run /api/calibrate to refine this against a reference protein.",
-    })
+    return jsonify(_load_calibration_module().load_calibration())
 
 
 # ---------------------------------------------------------------------------

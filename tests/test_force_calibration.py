@@ -16,7 +16,9 @@ from force_calibration import (  # type: ignore[import-not-found]
     calibrate_against_reference,
     detect_rupture_force,
     load_calibration,
+    pn_per_upside_force_unit_near_trajectory,
     write_calibration,
+    write_force_calibration_sidecar,
 )
 
 
@@ -82,3 +84,22 @@ def test_known_references_have_unfolding_force():
     for name, info in REFERENCE_PROTEINS.items():
         assert info["unfolding_pn"] > 0, name
         assert info["description"]
+
+
+def test_write_sidecar_and_near_trajectory(tmp_path, monkeypatch):
+    monkeypatch.setattr("force_calibration.ANALYSIS_DIR", tmp_path)
+    write_calibration(99.0, reference="test", mode="test")
+    job = tmp_path / "job"
+    job.mkdir()
+    fake_traj = job / "outputs" / "sim" / "input.run.0.up"
+    fake_traj.parent.mkdir(parents=True)
+    fake_traj.touch()
+    write_force_calibration_sidecar(job)
+    assert pn_per_upside_force_unit_near_trajectory(fake_traj) == 99.0
+
+
+def test_near_trajectory_falls_back_when_no_sidecar(tmp_path, monkeypatch):
+    monkeypatch.setattr("force_calibration.ANALYSIS_DIR", tmp_path)
+    p = tmp_path / "only.h5"
+    p.touch()
+    assert pn_per_upside_force_unit_near_trajectory(p) == DEFAULT_FACTOR_PN_PER_UPSIDE

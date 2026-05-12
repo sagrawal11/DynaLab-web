@@ -494,6 +494,8 @@ document.addEventListener('DOMContentLoaded', function () {
         if (config.enablePulling) {
             if (config.pullingMode === 'tension') {
                 config.tensionEntries = readTensionEntries();
+                const tipn = document.getElementById('tension-input-pn');
+                config.tensionInPiconewtons = !!(tipn && tipn.checked);
             } else {
                 config.afmEntries = readAfmEntries();
             }

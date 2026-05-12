@@ -1,12 +1,15 @@
 """Calibrate Upside reduced-force units to physical piconewtons.
 
-Upside's energy unit is dimensionless. The default conversion baked into
-``analyze_force_extension`` (``41.4 pN per upside-force unit``) comes from
-historical fits done by the Sosnick group. To trust quantitative force
-predictions for the centrifuge experiment we re-derive that factor on the
-present box / temperature / force-field combination by reproducing the
-known unfolding force of a reference protein (FN3 domain 10 of fibronectin,
-which unfolds at ~140 pN under AFM).
+Upside's energy unit is dimensionless. The default conversion factor
+(``DEFAULT_FACTOR_PN_PER_UPSIDE``, currently ``41.4`` pN per Upside-force unit)
+comes from historical fits done by the Sosnick group. All callers should use
+:func:`load_calibration` or :func:`pn_per_upside_force_unit` so sweep inputs,
+post-processed force–extension plots, and extraction scripts stay consistent.
+
+To trust quantitative force predictions for the centrifuge experiment we
+re-derive that factor on the present box / temperature / force-field
+combination by reproducing the known unfolding force of a reference protein
+(FN3 domain 10 of fibronectin, which unfolds at ~140 pN under AFM).
 
 The calibration loop:
   1. Run a short velocity-clamp pulling simulation on the reference protein.
@@ -103,6 +106,50 @@ def load_calibration() -> dict:
         "reference":                  "default (uncalibrated)",
         "note":                       "Run analysis/force_calibration.py to refine.",
     }
+
+
+def pn_per_upside_force_unit() -> float:
+    """Physical piconewtons corresponding to one Upside reduced-force unit.
+
+    Used when converting spring-derived forces or tension inputs to/from pN.
+    Always read ``factor_pn_per_upside_force`` from :func:`load_calibration`
+    so sweeps, post-processing, and extraction scripts stay consistent.
+    """
+    return float(load_calibration()["factor_pn_per_upside_force"])
+
+
+def write_force_calibration_sidecar(directory: Path | str, factor: float | None = None) -> Path:
+    """Write ``force_calibration_used.json`` so analyses can reuse the factor from run time.
+
+    ``factor`` is *pN per one Upside reduced-force unit* (same as
+    :func:`pn_per_upside_force_unit`). When omitted, the current value from
+    :func:`load_calibration` is written.
+    """
+    d = Path(directory)
+    d.mkdir(parents=True, exist_ok=True)
+    f = float(factor) if factor is not None else pn_per_upside_force_unit()
+    p = d / "force_calibration_used.json"
+    p.write_text(json.dumps({"factor_pn_per_upside_force": f}, indent=2))
+    return p
+
+
+def pn_per_upside_force_unit_near_trajectory(traj_path: str | Path) -> float:
+    """Return the calibration factor to use for a trajectory, preferring a saved sidecar.
+
+    Walks upward from the ``.run.up`` file (or any path) looking for
+    ``force_calibration_used.json`` written by the web server or sweep
+    orchestrator at job setup time. Falls back to :func:`pn_per_upside_force_unit`.
+    """
+    t = Path(traj_path).resolve()
+    for d in (t.parent, t.parent.parent, t.parent.parent, t.parent.parent.parent):
+        side = d / "force_calibration_used.json"
+        if side.is_file():
+            try:
+                rec = json.loads(side.read_text())
+                return float(rec["factor_pn_per_upside_force"])
+            except Exception:
+                continue
+    return pn_per_upside_force_unit()
 
 
 def _measure_existing_trajectory(traj_file: str, reference: str) -> dict:

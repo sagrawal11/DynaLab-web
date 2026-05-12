@@ -321,10 +321,14 @@
                             <button type="button" class="help-btn help-btn--inline" data-help="pulling_tension_config" aria-label="Help: tension fields">?</button>
                         </h3>
                         <p class="param-description">
-                            Apply equal-and-opposite forces at two residues. Forces are in Upside
-                            reduced units (kT / Å); the force-sweep mode below converts piconewtons
-                            for you.
+                            Apply equal-and-opposite forces at two residues. By default, tx, ty, tz are in Upside
+                            reduced units (kT / Å). The force sweep below accepts forces in pN and converts them
+                            automatically; for a single run you can optionally use pN here with the checkbox.
                         </p>
+                        <label class="checkbox-label" style="margin-top: 0.35rem;">
+                            <input type="checkbox" id="tension-input-pn">
+                            <span>Interpret tx, ty, tz as pN (convert with current calibration)</span>
+                        </label>
                         <div class="tension-entries" id="tension-entries">
                             <div class="afm-entry">
                                 <div class="afm-entry-header"><h4>Tension Point 1</h4></div>
