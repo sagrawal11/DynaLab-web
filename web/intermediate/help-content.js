@@ -38,7 +38,7 @@ window.DYNALAB_HELP_CONTENT = {
   "sim_mode": {
     "title": "Simulation mode",
     "overviewHtml": "<p><strong>Constant temperature</strong> keeps one thermostat on one copy of your protein—classic MD.</p><p><strong>Replica exchange</strong> runs several copies at different temperatures and periodically tries to swap coordinates between neighbors to improve sampling.</p>",
-    "detailHtml": "<p>Constant-T mode is the default mental model: energy bumps into the bath, the bath stays at set temperature, the protein explores conformations allowed at that heat.</p><p>Replica exchange adds ladders: a very hot replica can unfold quickly, while a cool replica stays near native conditions. Swaps let the cool chain inherit beneficial moves discovered by hot chains.</p><p>If your question is only local relaxation around a crystal structure, constant temperature is simpler. If you need barrier crossings (partial unfolding without insane heat on the physical replica), replica exchange is attractive.</p>"
+    "detailHtml": "<p>Constant-T mode is the default mental model: energy bumps into the bath, the bath stays at set temperature, the protein explores conformations allowed at that heat.</p><p>Replica exchange adds ladders: a very hot replica can unfold quickly, while a cool replica stays near native conditions. Swaps let the cool chain inherit beneficial moves discovered by hot chains.</p><p>If your question is only local relaxation around a crystal structure, constant temperature is simpler. If you need barrier crossings (partial unfolding without insane heat on the physical replica), replica exchange is attractive.</p><p><strong>Web backend:</strong> choosing <strong>Replica exchange</strong> runs <code>start/Replica_Exchange.py</code> (temperature ladder + swap attempts), writing <code>outputs/remd/input.run.&lt;i&gt;.up</code>. It cannot be combined with pulling or force sweeps from this UI.</p>"
   },
   "duration_steps": {
     "title": "Duration (steps)",
@@ -54,6 +54,11 @@ window.DYNALAB_HELP_CONTENT = {
     "title": "Temperature",
     "overviewHtml": "<p>Thermostat target in Upside <strong>reduced</strong> units—not literal Kelvin in this UI field.</p><p>Higher values add kinetic energy and can accelerate unfolding; lower values keep the chain more frozen.</p>",
     "detailHtml": "<p>Temperature controls how vigorously random kicks jiggle the chain. In reduced units, what matters is relative comparisons between runs and the replica ladder spacing—not the absolute number by itself.</p><p>If you compare to wet lab, you need a mapping story from reduced units to physical units for your force field and model resolution—that is research-level calibration, not a single universal factor.</p><p>If the protein explodes numerically, temperature may be too high for your timestep or constraints; if nothing moves, it may be too low or your duration too short.</p>"
+  },
+  "basic_independent_replicas": {
+    "title": "Independent replicas (constant T)",
+    "overviewHtml": "<p>Runs several <strong>sequential</strong> constant-temperature jobs with the same settings but a new random seed each time—useful for a tiny ensemble or checking run-to-run noise.</p><p>Cost is roughly linear in replica count (wall time adds up). This is <em>not</em> replica exchange: there is no temperature ladder and no swaps.</p>",
+    "detailHtml": "<p>With more than one replica, trajectories are written under <code>outputs/sim_r0/</code>, <code>sim_r1/</code>, … and download becomes a zip. When you run analyses from the UI, each replica is analyzed separately (plots under <code>analysis/replicas/&lt;label&gt;/</code>) and a final section shows the mean of numeric summary fields across replicas.</p>"
   },
   "replica_exchange": {
     "title": "Replica exchange",
@@ -178,7 +183,12 @@ window.DYNALAB_HELP_CONTENT = {
   "restraint_pair_spring": {
     "title": "Pair spring restraint",
     "overviewHtml": "<p>Each line: <code>residue1 residue2 radius spring_const</code>.</p><p>Spring-like coupling between two residues as consumed by Upside prep.</p>",
-    "detailHtml": "<p>Use when two sites should feel an attractive or repulsive bias relative to one another beyond ordinary nonbonded interactions.</p><p>Check units and signs in the Upside documentation—this UI only forwards your table faithfully.</p>"
+    "detailHtml": "<p>Use when two sites should feel an attractive or repulsive bias relative to one another beyond ordinary nonbonded interactions.</p><p>The <strong>Restraint groups (pairs)</strong> rows above generate this table for you (with the required <code>xyz</code> header); the raw textarea is for advanced edits.</p>"
+  },
+  "restraint_group_pairs": {
+    "title": "Restraint groups (pairs)",
+    "overviewHtml": "<p>Each row is a <strong>pair</strong> of residues (0-based indices). The server writes a 3D harmonic spring between their Cα atoms with equilibrium distance from the field you set or, if blank, from your uploaded PDB.</p><p>With <strong>Rigid disulfide-like stiffness</strong> enabled (default), a high spring constant is applied automatically so the Cα–Cα distance barely moves—a coarse analog of a staple, not real cysteine chemistry.</p>",
+    "detailHtml": "<p>Uncheck rigid mode to expose per-row spring constants if you want a softer linker.</p><p>On multi-chain PDBs, indices follow the ordered list of Cα atoms in the file.</p>"
   },
   "restraint_nail": {
     "title": "Nail restraint",

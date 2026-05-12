@@ -146,6 +146,9 @@ if not continue_sim:
         print("sim_type must be either 'velocity' or 'tension'")
         raise ValueError("sim_type must be either 'pulling' or 'tension'")
 
+    if restraints and str(restraints).lower() not in ("none", ""):
+        kwargs["pair_spring"] = restraints
+
     config_stdout = ru.advanced_config(config_base, **kwargs)
     print("Advanced Config commandline options:")
     print(config_stdout)

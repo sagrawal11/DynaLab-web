@@ -1185,6 +1185,19 @@ input:where([type="text"], [type="email"], [type="number"], [type="password"], [
     padding: 0.5rem 0.75rem;
 }
 
+.analysis-replica-block {
+    margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.analysis-replica-inner {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 1.5rem;
+    margin-top: 0.75rem;
+}
+
 #analysis-status {
     margin-top: 0.75rem;
     min-height: 1.2em;

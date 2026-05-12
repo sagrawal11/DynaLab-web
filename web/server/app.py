@@ -14,9 +14,12 @@ subprocess and report status' lives elsewhere:
   - ``start/Force_Sweep.py``          -> N-force pulling sweep orchestrator
 """
 
+from __future__ import annotations
+
 import csv
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -26,6 +29,7 @@ import threading
 import time
 import traceback
 import uuid
+import zipfile
 from pathlib import Path
 
 from flask import Flask, jsonify, redirect, request, send_file, send_from_directory
@@ -227,10 +231,379 @@ def _write_tension_dat(
             f.write(f"{int(entry['residue'])} {tx} {ty} {tz}\n")
 
 
+PAIR_SPRING_FILENAME = "spring-pair-xyz.dat"
+PAIR_SPRING_HEADER = "residue1 residue2 radius spring_const xyz"
+# Strong harmonic constant in Upside reduced units for near-rigid Cα–Cα bridging (not a chemical disulfide).
+RIGID_PAIR_SPRING_CONST = 120.0
+
+
+def _ordered_ca_xyz_from_pdb(pdb_path: Path) -> list[tuple[float, float, float]]:
+    """Ordered Cα positions (one per residue) for 0-based Upside-style indexing."""
+    if not pdb_path.is_file():
+        return []
+    seen: set[tuple[str, int, str]] = set()
+    coords: list[tuple[float, float, float]] = []
+    for line in pdb_path.read_text().splitlines():
+        if not (line.startswith("ATOM  ") or line.startswith("HETATM")):
+            continue
+        if line[12:16].strip() != "CA":
+            continue
+        chain = line[21]
+        try:
+            resseq = int(line[22:26])
+        except ValueError:
+            continue
+        icode = line[26] if len(line) > 26 else " "
+        icode = icode.strip() or " "
+        key = (chain, resseq, icode)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            x = float(line[30:38])
+            y = float(line[38:46])
+            z = float(line[46:54])
+        except (ValueError, IndexError):
+            continue
+        coords.append((x, y, z))
+    return coords
+
+
+def _ca_distance(coords: list[tuple[float, float, float]], i: int, j: int) -> float:
+    if i < 0 or j < 0 or i >= len(coords) or j >= len(coords):
+        raise ValueError(
+            f"Cα distance: residue indices {i}, {j} out of range for this PDB (0..{len(coords) - 1})."
+        )
+    ax, ay, az = coords[i]
+    bx, by, bz = coords[j]
+    return math.sqrt((ax - bx) ** 2 + (ay - by) ** 2 + (az - bz) ** 2)
+
+
+def _write_pair_spring_dat(job_dir: Path, config: dict) -> str | None:
+    """Write ``spring-pair-xyz.dat`` if the UI requested distance locks or manual pair spring.
+
+    Returns the filename to pass to ``Single_Replica`` / ``Pulling_Simulations``, or ``None``.
+    """
+    pdb_path = job_dir / "input.pdb"
+    lines_body: list[str] = []
+
+    pairs = config.get("distanceLockPairs") or []
+    for p in pairs:
+        try:
+            r1 = int(p.get("res1"))
+            r2 = int(p.get("res2"))
+        except (TypeError, ValueError):
+            continue
+        if r1 == r2:
+            raise ValueError(f"Distance lock: residue indices must differ (got {r1}, {r2}).")
+        rigid = config.get("restraintGroupRigidSpring")
+        if rigid is None:
+            rigid = True
+        if rigid:
+            spring = RIGID_PAIR_SPRING_CONST
+        else:
+            spring = float(p.get("springConst", 4.0))
+        d_raw = (p.get("distanceAngstrom") or "").strip()
+        coords = _ordered_ca_xyz_from_pdb(pdb_path)
+        if not coords:
+            raise ValueError("Distance lock: could not read Cα coordinates from input PDB.")
+        if d_raw == "":
+            r0 = _ca_distance(coords, r1, r2)
+        else:
+            r0 = float(d_raw)
+        lines_body.append(f"{r1} {r2} {r0:.6f} {spring:g}")
+
+    if lines_body:
+        out = job_dir / PAIR_SPRING_FILENAME
+        out.write_text(PAIR_SPRING_HEADER + "\n" + "\n".join(lines_body) + "\n")
+        return PAIR_SPRING_FILENAME
+
+    if config.get("enablePairSpringText"):
+        raw = (config.get("pairSpringText") or "").strip()
+        if raw:
+            low = raw.splitlines()[0].lower() if raw else ""
+            if "residue1" in low and "residue2" in low:
+                text = raw if raw.endswith("\n") else raw + "\n"
+            else:
+                text = PAIR_SPRING_HEADER + "\n" + raw + ("\n" if not raw.endswith("\n") else "")
+            (job_dir / PAIR_SPRING_FILENAME).write_text(text)
+            return PAIR_SPRING_FILENAME
+
+    return None
+
+
+def _canonical_pair_int(i: int, j: int) -> tuple[int, int]:
+    return (i, j) if i <= j else (j, i)
+
+
+def _parse_pair_spring_text_residue_pairs(raw: str) -> list[tuple[int, int]]:
+    """First two integers per non-comment, non-header line (Upside pair_spring body format)."""
+    pairs: list[tuple[int, int]] = []
+    for line in raw.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        low = s.lower()
+        if "residue1" in low and "residue2" in low:
+            continue
+        parts = s.split()
+        if len(parts) < 2:
+            continue
+        try:
+            a = int(float(parts[0]))
+            b = int(float(parts[1]))
+        except (TypeError, ValueError):
+            continue
+        pairs.append((a, b))
+    return pairs
+
+
+def _validate_single_job_config(job_dir: Path, config: dict) -> None:
+    """Reject inconsistent configs before spawning Upside (also enforced in the UI)."""
+    pdb_path = job_dir / "input.pdb"
+
+    locks = config.get("distanceLockPairs")
+    if locks is not None and not isinstance(locks, list):
+        raise ValueError("distanceLockPairs must be a list when provided.")
+    locks = locks or []
+
+    has_manual = bool(config.get("enablePairSpringText")) and str(
+        config.get("pairSpringText") or ""
+    ).strip()
+    if locks and has_manual:
+        raise ValueError(
+            "Cannot combine distance-lock restraint groups with manual pair spring text in one job. "
+            "Disable one of them—they map to the same Upside pair_spring table."
+        )
+
+    seen_pairs: set[tuple[int, int]] = set()
+    for idx, p in enumerate(locks):
+        if not isinstance(p, dict):
+            raise ValueError(f"Distance lock entry {idx + 1} must be an object.")
+        try:
+            r1 = int(p.get("res1"))
+            r2 = int(p.get("res2"))
+        except (TypeError, ValueError):
+            raise ValueError(f"Distance lock entry {idx + 1}: residue indices must be integers.")
+        if r1 < 0 or r2 < 0:
+            raise ValueError(f"Distance lock entry {idx + 1}: residue indices cannot be negative.")
+        if r1 == r2:
+            raise ValueError(
+                f"Distance lock entry {idx + 1}: the two residues must differ (got {r1}, {r2})."
+            )
+        key = _canonical_pair_int(r1, r2)
+        if key in seen_pairs:
+            raise ValueError(
+                f"Duplicate distance-lock pair for residues {key[0]} and {key[1]} "
+                "(order does not matter). Remove the duplicate row."
+            )
+        seen_pairs.add(key)
+
+    if locks:
+        coords = _ordered_ca_xyz_from_pdb(pdb_path)
+        if not coords:
+            raise ValueError("Distance locks require a readable PDB with Cα atoms.")
+        n = len(coords)
+        for idx, p in enumerate(locks):
+            r1 = int(p.get("res1"))
+            r2 = int(p.get("res2"))
+            if r1 >= n or r2 >= n:
+                raise ValueError(
+                    f"Distance lock entry {idx + 1}: residue indices {r1}, {r2} are out of range "
+                    f"for this PDB (valid 0..{n - 1})."
+                )
+
+    if has_manual:
+        raw = str(config.get("pairSpringText") or "").strip()
+        mpairs = _parse_pair_spring_text_residue_pairs(raw)
+        if not mpairs:
+            raise ValueError(
+                "Manual pair spring text is enabled but no residue pair lines could be parsed."
+            )
+        seen_m: set[tuple[int, int]] = set()
+        for a, b in mpairs:
+            if a == b:
+                raise ValueError(f"Manual pair spring: residue indices must differ (got {a}, {b}).")
+            if a < 0 or b < 0:
+                raise ValueError("Manual pair spring: residue indices cannot be negative.")
+            key = _canonical_pair_int(a, b)
+            if key in seen_m:
+                raise ValueError(
+                    f"Duplicate manual pair-spring line for residues {key[0]} and {key[1]}."
+                )
+            seen_m.add(key)
+        coords = _ordered_ca_xyz_from_pdb(pdb_path)
+        if coords:
+            n = len(coords)
+            for a, b in mpairs:
+                if a >= n or b >= n:
+                    raise ValueError(
+                        f"Manual pair spring: indices {a}, {b} are out of range for this PDB "
+                        f"(valid 0..{n - 1})."
+                    )
+
+    if not config.get("enablePulling"):
+        return
+
+    mode = (config.get("pullingMode") or "velocity").strip().lower()
+    if mode == "tension":
+        entries = config.get("tensionEntries") or []
+        if not isinstance(entries, list) or not entries:
+            raise ValueError("Constant-tension pulling requires at least one tension entry.")
+        residues: list[int] = []
+        for idx, e in enumerate(entries):
+            if not isinstance(e, dict):
+                raise ValueError(f"Tension entry {idx + 1} must be an object.")
+            try:
+                r = int(e.get("residue"))
+            except (TypeError, ValueError):
+                raise ValueError(f"Tension entry {idx + 1}: residue must be an integer.")
+            if r < 0:
+                raise ValueError(f"Tension entry {idx + 1}: residue index cannot be negative.")
+            residues.append(r)
+        if len(residues) != len(set(residues)):
+            raise ValueError(
+                "Constant-tension pulling: each residue may appear at most once across tension rows."
+            )
+    else:
+        entries = config.get("afmEntries") or []
+        if not isinstance(entries, list) or not entries:
+            raise ValueError("Velocity-clamp pulling requires at least one AFM entry.")
+        residues = []
+        for idx, e in enumerate(entries):
+            if not isinstance(e, dict):
+                raise ValueError(f"AFM entry {idx + 1} must be an object.")
+            try:
+                r = int(e.get("residue"))
+            except (TypeError, ValueError):
+                raise ValueError(f"AFM entry {idx + 1}: residue must be an integer.")
+            if r < 0:
+                raise ValueError(f"AFM entry {idx + 1}: residue index cannot be negative.")
+            residues.append(r)
+        if len(residues) != len(set(residues)):
+            raise ValueError(
+                "Velocity-clamp pulling: each residue may appear at most once across AFM rows."
+            )
+
+
+def _basic_replica_count(config: dict) -> int:
+    """Independent constant-T replicas for ``Single_Replica.py`` (sequential runs, distinct seeds)."""
+    try:
+        n = int(float(config.get("basicIndependentReplicas", 1)))
+    except (TypeError, ValueError):
+        n = 1
+    return max(1, min(n, 32))
+
+
+_REMD_TRAJ = re.compile(r"^input\.run\.(\d+)\.up$")
+
+
+def _collect_remd_trajectories(job_dir: Path) -> list[Path]:
+    """Replica-exchange outputs from ``start/Replica_Exchange.py`` (``outputs/remd/input.run.N.up``)."""
+    remd_dir = job_dir / "outputs" / "remd"
+    if not remd_dir.is_dir():
+        return []
+    numbered: list[tuple[int, Path]] = []
+    for p in remd_dir.iterdir():
+        if not p.is_file():
+            continue
+        m = _REMD_TRAJ.match(p.name)
+        if m:
+            numbered.append((int(m.group(1)), p))
+    return [pair[1] for pair in sorted(numbered, key=lambda t: t[0])]
+
+
+def _collect_basic_trajectories(job_dir: Path) -> list[Path]:
+    """Return completed ``.run.up`` paths for a basic (non-sweep) job."""
+    direct = job_dir / "outputs" / "sim" / "sim.run.up"
+    if direct.is_file():
+        return [direct]
+    remd_paths = _collect_remd_trajectories(job_dir)
+    if remd_paths:
+        return remd_paths
+    root = job_dir / "outputs"
+    if not root.is_dir():
+        return []
+    paths = sorted(p for p in root.glob("sim_r*/*.run.up") if p.is_file())
+    return paths
+
+
+def _mean_numeric_stats_across_replicas(stats_list: list[dict]) -> dict:
+    """Average scalar stats across replicas; skip booleans and ambiguous integer indices."""
+    if not stats_list:
+        return {}
+    keys = set(stats_list[0].keys())
+    for s in stats_list[1:]:
+        keys &= set(s.keys())
+    out: dict[str, float] = {}
+    for k in sorted(keys):
+        vals = [s[k] for s in stats_list]
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in vals):
+            continue
+        if all(isinstance(v, int) for v in vals) and (
+            "residue" in k.lower() or k.lower().endswith("_index")
+        ):
+            continue
+        out[k] = sum(float(v) for v in vals) / len(vals)
+    return out
+
+
+def _aggregate_analysis_across_replicas(
+    per_replica: dict[str, dict], ensemble_kind: str = "independent"
+) -> dict:
+    """One entry per analysis key: mean of numeric ``stats`` fields where all replicas succeeded."""
+    if not per_replica:
+        return {}
+    labels = sorted(per_replica.keys())
+    analysis_keys = None
+    for lab in labels:
+        keys = {k for k, v in per_replica[lab].items() if isinstance(v, dict)}
+        analysis_keys = keys if analysis_keys is None else (analysis_keys & keys)
+    agg: dict[str, dict] = {}
+    for akey in sorted(analysis_keys or []):
+        parts = []
+        for lab in labels:
+            r = per_replica[lab].get(akey)
+            if not r or r.get("error"):
+                parts = None
+                break
+            parts.append(r)
+        if not parts:
+            continue
+        stats_list = [p.get("stats") or {} for p in parts]
+        if not any(stats_list):
+            agg[akey] = {
+                "name": (parts[0].get("name") or akey) + " (ensemble mean)",
+                "description": (
+                    f"No comparable scalar stats across {len(labels)} replicas for this analysis."
+                ),
+            }
+            continue
+        mean_stats = _mean_numeric_stats_across_replicas(stats_list)
+        base_name = parts[0].get("name") or akey
+        base_desc = parts[0].get("description") or ""
+        if ensemble_kind == "replica_exchange":
+            trail = (
+                f"fields in ``stats`` across {len(labels)} REMD replica trajectories "
+                "(temperature ladder; not independent draws). Per-replica plots are shown above."
+            )
+        else:
+            trail = (
+                f"fields in ``stats`` across {len(labels)} independent replicas (same protocol, "
+                "different random seeds). Per-replica plots are shown above."
+            )
+        agg[akey] = {
+            "name": base_name + " (ensemble mean of scalars)",
+            "description": (f"{base_desc} Values below are arithmetic means of matching numeric " + trail).strip(),
+            "stats": mean_stats,
+        }
+    return agg
+
+
 def _build_simulation_command(job_dir: Path, config: dict) -> tuple:
     """Return ``(cmd, mode)`` for a single-job simulation invocation.
 
-    ``mode`` is ``'tension'``, ``'velocity'``, or ``'plain'``. The corresponding
+    ``mode`` is ``'tension'``, ``'velocity'``, ``'replica'``, or ``'plain'``. The corresponding
     ``.dat`` file (if any) is written into ``job_dir`` as a side effect.
     """
     pdb_id = "input"
@@ -238,6 +611,8 @@ def _build_simulation_command(job_dir: Path, config: dict) -> tuple:
     duration = str(int(float(config.get("duration", 1e6))))
     frame_interval = str(int(config.get("frameInterval", 100)))
     temperature = str(config.get("temperature", 0.85))
+
+    restraint_arg = _write_pair_spring_dat(job_dir, config) or "None"
 
     # Constant-tension mode (centrifuge analog)
     tension_entries = config.get("tensionEntries") or []
@@ -250,7 +625,7 @@ def _build_simulation_command(job_dir: Path, config: dict) -> tuple:
         script = f"{UPSIDE_HOME}/start/Pulling_Simulations.py"
         cmd = [
             sys.executable, script, pdb_id, str(job_dir), sim_id,
-            duration, frame_interval, "tension", "False", temperature, "None",
+            duration, frame_interval, "tension", "False", temperature, restraint_arg,
         ]
         return cmd, "tension"
 
@@ -261,15 +636,52 @@ def _build_simulation_command(job_dir: Path, config: dict) -> tuple:
         script = f"{UPSIDE_HOME}/start/Pulling_Simulations.py"
         cmd = [
             sys.executable, script, pdb_id, str(job_dir), sim_id,
-            duration, frame_interval, "velocity", "False", temperature, "None",
+            duration, frame_interval, "velocity", "False", temperature, restraint_arg,
         ]
         return cmd, "velocity"
+
+    sim_mode = (config.get("simulationMode") or "constant").strip().lower()
+    if sim_mode == "replica":
+        try:
+            n_rem = int(float(config.get("replicaNReplicas", 8)))
+        except (TypeError, ValueError):
+            n_rem = 8
+        n_rem = max(2, min(n_rem, 32))
+        try:
+            t_low = float(config.get("replicaTLow", 0.8))
+            t_high = float(config.get("replicaTHigh", 0.94))
+        except (TypeError, ValueError):
+            t_low, t_high = 0.8, 0.94
+        if t_high < t_low:
+            t_low, t_high = t_high, t_low
+        try:
+            repl_interval = int(float(config.get("replicaInterval", 10)))
+        except (TypeError, ValueError):
+            repl_interval = 10
+        repl_interval = max(1, min(repl_interval, 10_000))
+        script = f"{UPSIDE_HOME}/start/Replica_Exchange.py"
+        cmd = [
+            sys.executable,
+            script,
+            pdb_id,
+            str(job_dir),
+            duration,
+            frame_interval,
+            "False",
+            str(n_rem),
+            str(t_low),
+            str(t_high),
+            str(repl_interval),
+            restraint_arg,
+        ]
+        return cmd, "replica"
 
     # Plain constant-T
     script = f"{UPSIDE_HOME}/start/Single_Replica.py"
     cmd = [
         sys.executable, script, pdb_id, str(job_dir), sim_id,
-        duration, frame_interval, "False", temperature, "None",
+        duration, frame_interval, "False", temperature, restraint_arg,
+        str(_basic_replica_count(config)),
     ]
     return cmd, "plain"
 
@@ -277,7 +689,11 @@ def _build_simulation_command(job_dir: Path, config: dict) -> tuple:
 def _run_simulation(job_id: str, config: dict) -> None:
     job_dir = JOBS_DIR / job_id
     log_file = job_dir / "sim.log"
-    cmd, mode = _build_simulation_command(job_dir, config)
+    try:
+        cmd, mode = _build_simulation_command(job_dir, config)
+    except Exception as exc:
+        _write_status(job_dir, job_id=job_id, status="failed", error=str(exc))
+        return
     if mode in ("tension", "velocity"):
         try:
             _load_calibration_module().write_force_calibration_sidecar(job_dir)
@@ -324,12 +740,24 @@ def submit_job():
     except json.JSONDecodeError:
         return jsonify({"error": "Invalid config JSON"}), 400
 
+    sim_mode = (config.get("simulationMode") or "constant").strip().lower()
+    if sim_mode == "replica" and config.get("enablePulling"):
+        return jsonify(
+            {"error": "Replica exchange cannot be combined with pulling in this workflow."}
+        ), 400
+
     job_id = uuid.uuid4().hex[:8]
     job_dir = JOBS_DIR / job_id
     _init_job_layout(job_dir)
 
     pdb_file.save(job_dir / "input.pdb")
     (job_dir / "config.json").write_text(json.dumps(config, indent=2))
+    try:
+        _validate_single_job_config(job_dir, config)
+    except ValueError as exc:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        return jsonify({"error": str(exc)}), 400
+
     _write_status(job_dir, job_id=job_id, status="queued", kind="single")
 
     threading.Thread(
@@ -389,11 +817,35 @@ def get_job(job_id):
 @app.route("/api/jobs/<job_id>/download", methods=["GET"])
 def download_result(job_id):
     job_dir = JOBS_DIR / job_id
-    output_file = job_dir / "outputs" / "sim" / "sim.run.up"
-    if not output_file.exists():
+    paths = _collect_basic_trajectories(job_dir)
+    if not paths:
         return jsonify({"error": "Output not ready"}), 404
-    return send_file(output_file, as_attachment=True,
-                     download_name=f"{job_id}.run.up")
+    cfg: dict = {}
+    cfg_path = job_dir / "config.json"
+    if cfg_path.is_file():
+        try:
+            cfg = json.loads(cfg_path.read_text())
+        except Exception:
+            cfg = {}
+    remd = (cfg.get("simulationMode") or "").strip().lower() == "replica"
+    if len(paths) == 1:
+        return send_file(
+            paths[0],
+            as_attachment=True,
+            download_name=f"{job_id}.run.up",
+        )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for p in paths:
+            zf.write(p, arcname=p.name)
+    buf.seek(0)
+    zip_name = f"{job_id}_replica_exchange.zip" if remd else f"{job_id}_replicas.zip"
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=zip_name,
+        mimetype="application/zip",
+    )
 
 
 @app.route("/api/jobs/<job_id>", methods=["DELETE"])
@@ -612,10 +1064,8 @@ def get_calibration():
 # ---------------------------------------------------------------------------
 
 def _resolve_traj_for_job(job_dir: Path) -> Path | None:
-    direct = job_dir / "outputs" / "sim" / "sim.run.up"
-    if direct.exists():
-        return direct
-    return None
+    paths = _collect_basic_trajectories(job_dir)
+    return paths[0] if paths else None
 
 
 @app.route("/api/jobs/<job_id>/analyze", methods=["POST"])
@@ -624,9 +1074,17 @@ def analyze_job(job_id):
     if not job_dir.exists():
         return jsonify({"error": "Job not found"}), 404
 
-    traj_file = _resolve_traj_for_job(job_dir)
-    if traj_file is None:
+    paths = _collect_basic_trajectories(job_dir)
+    if not paths:
         return jsonify({"error": "Trajectory not ready"}), 400
+
+    cfg: dict = {}
+    cfg_path = job_dir / "config.json"
+    if cfg_path.is_file():
+        try:
+            cfg = json.loads(cfg_path.read_text())
+        except Exception:
+            cfg = {}
 
     body = request.get_json(silent=True) or {}
     requested = body.get("analyses") or []
@@ -642,20 +1100,67 @@ def analyze_job(job_id):
         return jsonify({"error": f"Analysis dependencies missing: {exc}"}), 500
 
     analysis_dir = job_dir / "analysis"
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+
+    def attach_urls_flat(results: dict) -> None:
+        for _key, result in results.items():
+            if not isinstance(result, dict):
+                continue
+            image = result.pop("image", None)
+            if image:
+                result["image_url"] = f"/api/jobs/{job_id}/analysis/{Path(image).name}"
+
+    def attach_urls_nested(results: dict, label: str) -> None:
+        for _key, result in results.items():
+            if not isinstance(result, dict):
+                continue
+            image = result.pop("image", None)
+            if image:
+                result["image_url"] = (
+                    f"/api/jobs/{job_id}/analysis/replicas/{label}/{Path(image).name}"
+                )
+
     try:
-        results = dynalab.run_analyses(
-            str(traj_file), str(analysis_dir), requested, params=params,
-        )
+        if len(paths) == 1:
+            traj_file = paths[0]
+            results = dynalab.run_analyses(
+                str(traj_file), str(analysis_dir), requested, params=params,
+            )
+            attach_urls_flat(results)
+            payload = results
+        else:
+            per: dict[str, dict] = {}
+            labels: list[str] = []
+            parents_resolved = [traj.parent.resolve() for traj in paths]
+            same_parent = len(set(parents_resolved)) == 1
+            for traj in paths:
+                label = traj.stem if same_parent else traj.parent.name
+                labels.append(label)
+                subdir = analysis_dir / "replicas" / label
+                subdir.mkdir(parents=True, exist_ok=True)
+                res = dynalab.run_analyses(
+                    str(traj), str(subdir), requested, params=params,
+                )
+                attach_urls_nested(res, label)
+                per[label] = res
+            ensemble_kind = (
+                "replica_exchange"
+                if (cfg.get("simulationMode") or "").strip().lower() == "replica"
+                else "independent"
+            )
+            agg = _aggregate_analysis_across_replicas(per, ensemble_kind)
+            payload = {
+                "multi_replica": True,
+                "ensemble_kind": ensemble_kind,
+                "replica_labels": labels,
+                "replicas": per,
+                "aggregate": agg,
+            }
     except Exception as exc:
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
 
-    for key, result in results.items():
-        image = result.pop("image", None)
-        if image:
-            result["image_url"] = f"/api/jobs/{job_id}/analysis/{Path(image).name}"
-
-    (analysis_dir / "results.json").write_text(json.dumps(results, indent=2))
-    return jsonify({"job_id": job_id, "results": results})
+    (analysis_dir / "results.json").write_text(json.dumps(payload, indent=2, default=str))
+    return jsonify({"job_id": job_id, "results": payload})
 
 
 @app.route("/api/jobs/<job_id>/analyze-sweep", methods=["POST"])

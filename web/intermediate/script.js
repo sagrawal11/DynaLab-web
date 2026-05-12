@@ -219,10 +219,16 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         });
 
+        const basicIr = document.getElementById('basic-independent-replicas');
+        if (basicIr) {
+            ['input', 'change'].forEach(ev => basicIr.addEventListener(ev, updateConfigSummary));
+        }
+
         membraneCoordSystem.addEventListener('change', updateConfigSummary);
 
         enablePulling.addEventListener('change', () => {
             toggleCardContent(pullingContent, enablePulling.checked);
+            syncSweepPullingExclusivity();
             updateConfigSummary();
         });
         pullingMode.addEventListener('change', () => {
@@ -261,6 +267,33 @@ document.addEventListener('DOMContentLoaded', function () {
 
         addAfmBtn.addEventListener('click', addAfmEntry);
         if (addTensionBtn) addTensionBtn.addEventListener('click', addTensionEntry);
+        const addDlBtn = document.getElementById('add-distance-lock-btn');
+        if (addDlBtn) addDlBtn.addEventListener('click', addDistanceLockEntry);
+        const enableDl = document.getElementById('enable-distance-locks');
+        const dlWrap = document.getElementById('distance-lock-entries');
+        const rigidSg = document.getElementById('restraint-group-rigid-spring');
+        function updateRestraintGroupSpringVisibility() {
+            const rigidOn = rigidSg && rigidSg.checked;
+            document.querySelectorAll('.distance-lock-k-field').forEach(el => {
+                el.classList.toggle('hidden', rigidOn);
+            });
+        }
+        if (enableDl && dlWrap && addDlBtn) {
+            enableDl.addEventListener('change', () => {
+                const on = enableDl.checked;
+                dlWrap.classList.toggle('hidden', !on);
+                addDlBtn.classList.toggle('hidden', !on);
+                if (on) updateRestraintGroupSpringVisibility();
+                updateConfigSummary();
+            });
+        }
+        if (rigidSg) {
+            rigidSg.addEventListener('change', () => {
+                updateRestraintGroupSpringVisibility();
+                updateConfigSummary();
+            });
+        }
+        updateRestraintGroupSpringVisibility();
         setupRemoveHandlers();
 
         runBtn.addEventListener('click', runSimulationOrSweep);
@@ -269,6 +302,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (enableSweep) {
             enableSweep.addEventListener('change', () => {
                 toggleCardContent(sweepContent, enableSweep.checked);
+                syncSweepPullingExclusivity();
                 updateConfigSummary();
             });
         }
@@ -299,6 +333,8 @@ document.addEventListener('DOMContentLoaded', function () {
         if (openSettingsBtn) openSettingsBtn.addEventListener('click', openSettings);
         if (settingsCloseBtn) settingsCloseBtn.addEventListener('click', closeSettings);
         if (settingsSaveBtn) settingsSaveBtn.addEventListener('click', saveSettings);
+
+        syncSweepPullingExclusivity();
     }
 
     // -------------------------------------------------------------------
@@ -331,10 +367,45 @@ document.addEventListener('DOMContentLoaded', function () {
         set('outer-value', membraneOuter.value);
     }
 
+    function syncSweepPullingExclusivity() {
+        if (!enableSweep || !enablePulling) return;
+        const isRep = simMode && simMode.value === 'replica';
+        if (isRep) return;
+        if (enableSweep.checked) {
+            enableSweep.disabled = false;
+            enablePulling.disabled = true;
+            if (enablePulling.checked) {
+                enablePulling.checked = false;
+                toggleCardContent(pullingContent, false);
+            }
+        } else if (enablePulling.checked) {
+            enableSweep.disabled = true;
+            enablePulling.disabled = false;
+        } else {
+            enableSweep.disabled = false;
+            enablePulling.disabled = false;
+        }
+    }
+
     function updateCardVisibility() {
         const isReplica = simMode.value === 'replica';
         constTempParams.classList.toggle('hidden', isReplica);
         replicaParams.classList.toggle('hidden', !isReplica);
+        if (enablePulling) {
+            enablePulling.disabled = isReplica;
+            if (isReplica && enablePulling.checked) {
+                enablePulling.checked = false;
+                toggleCardContent(pullingContent, false);
+            }
+        }
+        if (enableSweep) {
+            enableSweep.disabled = isReplica;
+            if (isReplica && enableSweep.checked) {
+                enableSweep.checked = false;
+                if (sweepContent) toggleCardContent(sweepContent, false);
+            }
+        }
+        syncSweepPullingExclusivity();
     }
 
     function toggleCardContent(content, enabled) {
@@ -413,11 +484,54 @@ document.addEventListener('DOMContentLoaded', function () {
         updateConfigSummary();
     }
 
+    function addDistanceLockEntry() {
+        const entries = document.getElementById('distance-lock-entries');
+        if (!entries) return;
+        const idx = entries.querySelectorAll('.afm-entry').length + 1;
+        const entry = document.createElement('div');
+        entry.className = 'afm-entry';
+        entry.innerHTML =
+            `<div class="afm-entry-header"><h4>Pair ${idx}</h4></div>
+            <div class="afm-content">
+                <div class="afm-row">
+                    <div class="afm-field">
+                        <label>Residue A</label>
+                        <input type="number" class="distance-lock-res1" min="0" value="0">
+                    </div>
+                    <div class="afm-field">
+                        <label>Residue B</label>
+                        <input type="number" class="distance-lock-res2" min="0" value="1">
+                    </div>
+                    <div class="afm-field">
+                        <label>Target distance (Å)</label>
+                        <input type="number" class="distance-lock-r0" step="0.01" value="" placeholder="from PDB">
+                    </div>
+                    <div class="afm-field distance-lock-k-field hidden">
+                        <label>Spring const (advanced)</label>
+                        <input type="number" class="distance-lock-k" step="0.1" value="4">
+                    </div>
+                </div>
+                <button type="button" class="remove-distance-lock-btn">Remove pair</button>
+            </div>`;
+        entries.appendChild(entry);
+        setupRemoveHandlers();
+        const rigidSg = document.getElementById('restraint-group-rigid-spring');
+        if (rigidSg) {
+            document.querySelectorAll('.distance-lock-k-field').forEach(el => {
+                el.classList.toggle('hidden', rigidSg.checked);
+            });
+        }
+        updateConfigSummary();
+    }
+
     function setupRemoveHandlers() {
         document.querySelectorAll('.remove-afm-btn').forEach(btn => {
             btn.onclick = () => { btn.closest('.afm-entry').remove(); updateConfigSummary(); };
             });
         document.querySelectorAll('.remove-tension-btn').forEach(btn => {
+            btn.onclick = () => { btn.closest('.afm-entry').remove(); updateConfigSummary(); };
+        });
+        document.querySelectorAll('.remove-distance-lock-btn').forEach(btn => {
             btn.onclick = () => { btn.closest('.afm-entry').remove(); updateConfigSummary(); };
         });
         document.querySelectorAll('.afm-entry input').forEach(input => {
@@ -444,10 +558,31 @@ document.addEventListener('DOMContentLoaded', function () {
             `Frame Interval: ${currentConfig.frameInterval} steps\n` +
             `Temperature: ${currentConfig.temperature}\n` +
             `Force field: ff_2.1`;
+        if (simMode && simMode.value === 'constant') {
+            const ir = document.getElementById('basic-independent-replicas');
+            const n = ir ? parseInt(ir.value, 10) : 1;
+            if (!Number.isNaN(n) && n > 1) summary += `\nIndependent replicas: ${n}`;
+        } else if (simMode && simMode.value === 'replica') {
+            summary += `\nReplica exchange: ${nReplicas.value} replicas, T_low=${tempLow.value}, T_high=${tempHigh.value}, interval=${replicaInterval.value}`;
+        }
         if (currentConfig.enableSweep) {
             summary += `\nForce sweep: enabled (${(sweepForces.value || '').split(',').filter(x => x.trim()).length} forces, ${sweepReplicas.value} replicas)`;
         } else if (currentConfig.enablePulling) {
             summary += `\nPulling: enabled (${currentConfig.pullingMode})`;
+        }
+        const er = document.getElementById('enable-restraints');
+        const edl = document.getElementById('enable-distance-locks');
+        if (er && er.checked && edl && edl.checked) {
+            const n = readDistanceLockEntries().length;
+            if (n) {
+                const rig = document.getElementById('restraint-group-rigid-spring');
+                const stiff = rig && rig.checked ? 'rigid bridge' : 'custom stiffness';
+                summary += `\nRestraint groups: ${n} pair(s), ${stiff}`;
+            }
+        }
+        const esp = document.getElementById('enable-spring-pair');
+        if (er && er.checked && esp && esp.checked && springPairText && springPairText.value.trim()) {
+            summary += '\nPair spring (manual table): enabled';
         }
         configSummary.textContent = summary;
     }
@@ -455,6 +590,84 @@ document.addEventListener('DOMContentLoaded', function () {
     function updateRunButton() {
         const hasReq = selectedFile && userName.value.trim() && userEmail.value.trim();
         runBtn.disabled = !hasReq;
+    }
+
+    function canonicalPairKey(a, b) {
+        const x = Math.min(Number(a), Number(b));
+        const y = Math.max(Number(a), Number(b));
+        return `${x}|${y}`;
+    }
+
+    /** Client-side checks mirroring web/server/app.py ``_validate_single_job_config`` (server still authoritative). */
+    function validateSingleInputs() {
+        const d = parseInt(duration.value, 10);
+        const fi = parseInt(frameInterval.value, 10);
+        if (Number.isNaN(d) || d < 1) return 'Duration must be a positive integer.';
+        if (Number.isNaN(fi) || fi < 1) return 'Frame interval must be a positive integer.';
+
+        if (enablePulling.checked) {
+            const mode = pullingMode ? pullingMode.value : 'velocity';
+            if (mode === 'tension') {
+                const rows = readTensionEntries();
+                if (!rows.length) return 'Constant-tension pulling needs at least one tension row.';
+                const res = [];
+                for (let i = 0; i < rows.length; i++) {
+                    const r = parseInt(rows[i].residue, 10);
+                    if (Number.isNaN(r) || r < 0) return `Tension row ${i + 1}: invalid residue index.`;
+                    res.push(r);
+                }
+                if (new Set(res).size !== res.length) {
+                    return 'Constant-tension pulling: use each residue at most once across tension rows.';
+                }
+            } else {
+                const rows = readAfmEntries();
+                if (!rows.length) return 'Velocity-clamp pulling needs at least one AFM row.';
+                const res = [];
+                for (let i = 0; i < rows.length; i++) {
+                    const r = parseInt(rows[i].residue, 10);
+                    if (Number.isNaN(r) || r < 0) return `AFM row ${i + 1}: invalid residue index.`;
+                    res.push(r);
+                }
+                if (new Set(res).size !== res.length) {
+                    return 'Velocity-clamp pulling: use each residue at most once across AFM rows.';
+                }
+            }
+        }
+
+        const er = document.getElementById('enable-restraints');
+        const edl = document.getElementById('enable-distance-locks');
+        const esp = document.getElementById('enable-spring-pair');
+        const locksOn = er && er.checked && edl && edl.checked;
+        const manualOn = er && er.checked && esp && esp.checked && springPairText && springPairText.value.trim();
+        if (locksOn && manualOn) {
+            const locks = readDistanceLockEntries();
+            if (locks.length) {
+                return 'Cannot combine distance-lock pairs with manual pair spring text (same backend table). Disable one.';
+            }
+        }
+        if (locksOn) {
+            const locks = readDistanceLockEntries();
+            const seen = new Set();
+            for (let i = 0; i < locks.length; i++) {
+                const a = parseInt(locks[i].res1, 10);
+                const b = parseInt(locks[i].res2, 10);
+                if (Number.isNaN(a) || Number.isNaN(b)) continue;
+                if (a === b) return `Distance lock pair ${i + 1}: the two residues must differ.`;
+                const k = canonicalPairKey(a, b);
+                if (seen.has(k)) {
+                    return `Duplicate distance-lock pair (${Math.min(a, b)}, ${Math.max(a, b)}). Remove the duplicate.`;
+                }
+                seen.add(k);
+            }
+        }
+        return null;
+    }
+
+    function validateBeforeSweep() {
+        if (enablePulling && enablePulling.checked) {
+            return 'Cannot run a force sweep together with single-job pulling. Disable pulling or turn off the sweep.';
+        }
+        return null;
     }
 
     // -------------------------------------------------------------------
@@ -477,20 +690,68 @@ document.addEventListener('DOMContentLoaded', function () {
         const log = document.getElementById('log-output');
         if (log) log.textContent = '';
 
+        let preErr = null;
+        if (enableSweep && enableSweep.checked) preErr = validateBeforeSweep();
+        else preErr = validateSingleInputs();
+        if (preErr) {
+            const pt = document.getElementById('progress-text');
+            if (pt) pt.textContent = preErr;
+            resetRunButton();
+            return;
+        }
+
         if (enableSweep && enableSweep.checked) {
+            if (simMode && simMode.value === 'replica') {
+                const pt = document.getElementById('progress-text');
+                if (pt) pt.textContent = 'Force sweep is not available together with replica exchange. Turn off sweep or switch to constant temperature.';
+                resetRunButton();
+                return;
+            }
             return submitSweep();
+        }
+        if (simMode && simMode.value === 'replica' && enablePulling.checked) {
+            const pt = document.getElementById('progress-text');
+            if (pt) pt.textContent = 'Replica exchange cannot be run with pulling enabled. Disable pulling or use constant temperature.';
+            resetRunButton();
+            return;
         }
         return submitSingle();
     }
 
     function submitSingle() {
+        const clientErr = validateSingleInputs();
+        if (clientErr) {
+            document.getElementById('progress-text').textContent = clientErr;
+            resetRunButton();
+            return;
+        }
         const config = {
             duration: parseInt(duration.value, 10),
             frameInterval: parseInt(frameInterval.value, 10),
             temperature: parseFloat(temperature.value),
+            simulationMode: simMode ? simMode.value : 'constant',
             enablePulling: enablePulling.checked,
             pullingMode: pullingMode ? pullingMode.value : 'velocity',
         };
+        if (simMode && simMode.value === 'replica') {
+            let n = nReplicas ? parseInt(nReplicas.value, 10) : 8;
+            if (Number.isNaN(n)) n = 8;
+            config.replicaNReplicas = Math.min(32, Math.max(2, n));
+            let tLo = tempLow ? parseFloat(tempLow.value) : 0.8;
+            let tHi = tempHigh ? parseFloat(tempHigh.value) : 0.94;
+            if (Number.isNaN(tLo)) tLo = 0.8;
+            if (Number.isNaN(tHi)) tHi = 0.94;
+            if (tHi < tLo) {
+                const s = tLo;
+                tLo = tHi;
+                tHi = s;
+            }
+            config.replicaTLow = tLo;
+            config.replicaTHigh = tHi;
+            let ri = replicaInterval ? parseInt(replicaInterval.value, 10) : 10;
+            if (Number.isNaN(ri)) ri = 10;
+            config.replicaInterval = Math.min(10000, Math.max(1, ri));
+        }
         if (config.enablePulling) {
             if (config.pullingMode === 'tension') {
                 config.tensionEntries = readTensionEntries();
@@ -499,6 +760,27 @@ document.addEventListener('DOMContentLoaded', function () {
             } else {
                 config.afmEntries = readAfmEntries();
             }
+        }
+        const er = document.getElementById('enable-restraints');
+        const edl = document.getElementById('enable-distance-locks');
+        if (er && er.checked && edl && edl.checked) {
+            const locks = readDistanceLockEntries();
+            if (locks.length) {
+                config.distanceLockPairs = locks;
+                const rig = document.getElementById('restraint-group-rigid-spring');
+                config.restraintGroupRigidSpring = rig ? rig.checked : true;
+            }
+        }
+        const esp = document.getElementById('enable-spring-pair');
+        if (er && er.checked && esp && esp.checked && springPairText && springPairText.value.trim()) {
+            config.enablePairSpringText = true;
+            config.pairSpringText = springPairText.value.trim();
+        }
+        if (simMode && simMode.value === 'constant') {
+            const ir = document.getElementById('basic-independent-replicas');
+            let n = ir ? parseInt(ir.value, 10) : 1;
+            if (Number.isNaN(n)) n = 1;
+            config.basicIndependentReplicas = Math.min(32, Math.max(1, n));
         }
         const formData = new FormData();
         formData.append('pdb', selectedFile);
@@ -518,6 +800,12 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function submitSweep() {
+        const sweepErr = validateBeforeSweep();
+        if (sweepErr) {
+            document.getElementById('progress-text').textContent = sweepErr;
+            resetRunButton();
+            return;
+        }
         const forces = (sweepForces.value || '').split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
         if (forces.length === 0) {
             document.getElementById('progress-text').textContent = 'Add at least one force to the sweep.';
@@ -572,6 +860,21 @@ document.addEventListener('DOMContentLoaded', function () {
             ty: e.querySelector('.tension-ty').value,
             tz: e.querySelector('.tension-tz').value,
         }));
+    }
+
+    function readDistanceLockEntries() {
+        const root = document.getElementById('distance-lock-entries');
+        if (!root) return [];
+        return Array.from(root.querySelectorAll('.afm-entry')).map(e => ({
+            res1: e.querySelector('.distance-lock-res1').value,
+            res2: e.querySelector('.distance-lock-res2').value,
+            distanceAngstrom: (e.querySelector('.distance-lock-r0') || {}).value ?? '',
+            springConst: (e.querySelector('.distance-lock-k') || {}).value || '4',
+        })).filter(p => {
+            const a = parseInt(p.res1, 10);
+            const b = parseInt(p.res2, 10);
+            return p.res1 !== '' && p.res2 !== '' && !Number.isNaN(a) && !Number.isNaN(b);
+        });
     }
 
     // -------------------------------------------------------------------
@@ -766,6 +1069,38 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function renderAnalysisResults(target, results) {
         target.innerHTML = '';
+        if (results.multi_replica && results.replicas && results.aggregate) {
+            const intro = document.createElement('p');
+            intro.className = 'param-description';
+            if (results.ensemble_kind === 'replica_exchange') {
+                intro.textContent = 'Replica-exchange trajectories (one file per temperature replica in the ladder). Each block below is one replica trajectory; the last section summarizes arithmetic means of numeric stats across replicas (plots are not averaged).';
+            } else {
+                intro.textContent = 'Multiple independent replica trajectories: each block below is one replica; the last section averages numeric summary statistics across replicas (plots are not averaged).';
+            }
+            target.appendChild(intro);
+
+            const labels = results.replica_labels || Object.keys(results.replicas).sort();
+            for (const label of labels) {
+                const block = document.createElement('div');
+                block.className = 'analysis-replica-block';
+                const h = document.createElement('h3');
+                h.className = 'subsection-title';
+                h.textContent = `Replica: ${label}`;
+                block.appendChild(h);
+                const inner = document.createElement('div');
+                inner.className = 'analysis-replica-inner';
+                renderAnalysisResults(inner, results.replicas[label] || {});
+                block.appendChild(inner);
+                target.appendChild(block);
+            }
+            const hAgg = document.createElement('h3');
+            hAgg.className = 'subsection-title';
+            hAgg.textContent = 'Ensemble mean (scalar stats only)';
+            target.appendChild(hAgg);
+            renderAnalysisResults(target, results.aggregate || {});
+            return;
+        }
+
         const order = [
             'rg', 'rmsd', 'rmsf', 'e2e', 'hbonds', 'salt_bridges',
             'shape', 'cross_corr', 'ss', 'pca', 'force_ext', 'contacts',

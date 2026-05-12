@@ -30,8 +30,8 @@ If `which python` shows a base conda path (e.g. `/opt/conda/bin/python`) instead
 - Serves the DynaLab static UI under `/intermediate/`; **`GET /` redirects there** (default landing page).
 - `POST /api/jobs` — accepts a PDB upload + JSON config, runs the simulation as a subprocess, returns a `job_id`.
 - `GET /api/jobs/<job_id>` — returns status, current step, and total steps (parsed from the simulation log).
-- `GET /api/jobs/<job_id>/download` — downloads the completed `.run.up` trajectory.
-- `POST /api/jobs/<job_id>/analyze` — body `{"analyses": ["rg", "rmsd", "rmsf", "e2e", "contacts"]}`; runs the requested analyses (powered by `analysis/dynalab_analysis.py`), saves PNGs into `jobs/<job_id>/analysis/`, returns image URLs and stats.
+- `GET /api/jobs/<job_id>/download` — downloads the completed trajectory: a single `.run.up` for one replica, or a zip of all replica files for multi-replica constant-T or replica-exchange jobs.
+- `POST /api/jobs/<job_id>/analyze` — body `{"analyses": ["rg", "rmsd", ...]}`; runs `analysis/dynalab_analysis.py`. For a single trajectory, PNGs land in `jobs/<job_id>/analysis/` and `results.json` is a flat map. For **multiple trajectories** (independent replicas or REMD ladder files), each is analyzed under `analysis/replicas/<label>/`, the API response includes `multi_replica`, optional `ensemble_kind` (`independent` or `replica_exchange`), `replicas`, and an `aggregate` section (means of numeric ``stats`` fields only; plots are not averaged).
 - `GET /api/jobs/<job_id>/analysis/<filename>` — serves an analysis PNG.
 - `DELETE /api/jobs/<job_id>` — removes a job's working directory.
 
@@ -43,10 +43,18 @@ The server invokes the existing scripts in `start/`:
 
 | Config | Script invoked |
 |---|---|
-| `enablePulling: false` | `start/Single_Replica.py` (constant-T MD) |
+| `simulationMode: "constant"`, `enablePulling: false` | `start/Single_Replica.py` (constant-T MD) |
+| `simulationMode: "replica"`, `enablePulling: false` | `start/Replica_Exchange.py` (replica exchange; outputs under `outputs/remd/`) |
 | `enablePulling: true` with AFM entries | `start/Pulling_Simulations.py` (velocity-clamp) |
+| `enablePulling: true` with tension entries | `start/Pulling_Simulations.py` (constant tension) |
 
-Membrane and restraint options from the UI are ignored by this minimal backend.
+Replica exchange cannot be combined with pulling; the API returns `400` if both are requested.
+
+For plain MD, `basicIndependentReplicas` (1–32, default 1) is passed as a 10th argument to `Single_Replica.py`: values greater than 1 run that many sequential simulations with independent random seeds; outputs go to `outputs/sim_r{j}/` and download is a zip of all `.run.up` files.
+
+**Restraints:** `distanceLockPairs` and optional `restraintGroupRigidSpring` (default `true`: server uses a high `pair_spring` constant for near-rigid pairs); manual pair-spring text can still be used. These produce `spring-pair-xyz.dat` in the job directory; the server passes that filename to the start scripts as ``pair_spring``. Other restraint types in the UI (walls, nails, fixed springs) are not yet wired through this backend.
+
+Membrane sliders in the UI are not applied to web jobs. Constant-T `Single_Replica.py` runs use no implicit membrane from that card. `Pulling_Simulations.py` uses a fixed default membrane thickness in its Upside config (see `start/Pulling_Simulations.py`).
 
 ## Post-processing analyses
 

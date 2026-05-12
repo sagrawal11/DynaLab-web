@@ -25,18 +25,26 @@ duration       = sys.argv[4]
 frame_interval = sys.argv[5]
 base_dir       = './'
 
-continue_sim     = False
-
-continue_sim     = sys.argv[6]  # when you run a new simulation, set it as "False"
+continue_sim   = sys.argv[6]  # when you run a new simulation, set it as "False"
                          # "True" means restarting the simulation from the last frame
-                         # of the previous trajectories (they should have the same 
-                         # pdb_id and sim_id as the new simulation, and exist in the 
+                         # of the previous trajectories (they should have the same
+                         # pdb_id and sim_id as the new simulation, and exist in the
                          # corresponding path)
 
-randomseed       =  np.random.randint(0,100000)
-                         # Might want to change the fixed seed for the random number
-
 restraints = sys.argv[8]
+
+n_rep = 1
+if len(sys.argv) > 9:
+    try:
+        n_rep = int(sys.argv[9])
+    except ValueError:
+        n_rep = 1
+n_rep = max(1, min(int(n_rep), 32))
+
+is_continue = str(continue_sim).lower() in ('true', '1')
+if is_continue and n_rep > 1:
+    print('Warning: continue_sim with multiple replicas is not supported; using 1 replica.')
+    n_rep = 1
 
 #----------------------------------------------------------------------
 ## Initialization
@@ -44,36 +52,50 @@ restraints = sys.argv[8]
 
 input_dir  = "{}/inputs".format(base_dir)
 output_dir = "{}/outputs".format(base_dir)
-run_dir    = "{}/{}".format(output_dir, sim_id)
 
-make_dirs = [input_dir, output_dir, run_dir]
+def replica_paths(index):
+    """Return (slot_sim_id, run_dir, h5_file, log_file) for replica index ``index``."""
+    if n_rep == 1:
+        sid = sim_id
+    else:
+        sid = "{}_r{}".format(sim_id, index)
+    run_j = "{}/{}".format(output_dir, sid)
+    h5_j = "{}/{}.run.up".format(run_j, sid)
+    log_j = "{}/{}.run.log".format(run_j, sid)
+    return sid, run_j, h5_j, log_j
+
+_, run_dir, h5_file, log_file = replica_paths(0)
+
+make_dirs = [input_dir, output_dir]
 for direc in make_dirs:
     if not os.path.exists(direc):
         os.makedirs(direc)
 
-h5_file  = "{}/{}.run.up".format(run_dir, sim_id)
-log_file = "{}/{}.run.log".format(run_dir, sim_id)
+for j in range(n_rep):
+    _, rj, _, _ = replica_paths(j)
+    if not os.path.exists(rj):
+        os.makedirs(rj)
 
 #----------------------------------------------------------------------
-## Check the previous trajectories if you set continue_sim = True 
+## Check the previous trajectories if you set continue_sim = True
 #----------------------------------------------------------------------
 
-if continue_sim:
+if is_continue:
     exist = os.path.exists(h5_file)
     if not exist:
         print('Warning: no previous trajectory file {}!'.format(h5_file))
         print('set "continue_sim = False" and start a new simulation')
-        continue_sim = False
+        is_continue = False
     else:
         exist = os.path.exists(log_file)
         if not exist:
             print('Warning: no previous log file {}!'.format(log_file))
 
 #----------------------------------------------------------------------
-## Generate Upside readable initial structure (and fasta) from PDB 
+## Generate Upside readable initial structure (and fasta) from PDB
 #----------------------------------------------------------------------
 
-if not continue_sim:
+if not is_continue:
     print ("Initial structure gen...")
     cmd = (
            "python {0}/PDB_to_initial_structure.py "
@@ -115,25 +137,17 @@ if is_native:
     kwargs['initial_structure'] =  "{}/{}.initial.npy".format(input_dir, pdb_id)
 
 config_base = "{}/{}.up".format( input_dir, pdb_id)
-if not continue_sim:
+if not is_continue:
     print ("Configuring...")
     config_stdout = ru.upside_config(fasta, config_base, **kwargs)
     print ("Config commandline options:")
     print (config_stdout)
 
-if not continue_sim:
+if not is_continue:
 
-    kwargs = dict(
-                   # select one to run
-                   #fixed_wall = 'wall-const-xyz.dat'
-                   #pair_wall  = 'wall-pair-xyz.dat'
-                   #fixed_spring = 'spring-const-xyz.dat'
-                   #pair_spring      = 'spring-pair-xyz.dat',
-                   #cavity_radius    =30,
-                   #make_unbound     = True,
-                   #nail = 'nail-xyz.dat',
-                   #restraint_groups          = restraints
-                 )
+    kwargs = {}
+    if restraints and str(restraints).lower() not in ("none", ""):
+        kwargs["pair_spring"] = restraints
 
     config_stdout = ru.advanced_config(config_base, **kwargs)
     print ("Advanced Config commandline options:")
@@ -143,12 +157,7 @@ if not continue_sim:
 ## Run Settings
 #----------------------------------------------------------------------
 
-if continue_sim:
-    restart_str = "--restart-using-momentum"
-else:
-    restart_str = ""
-
-upside_opts = (
+upside_opts_tmpl = (
                  "--duration {} "
                  "--frame-interval {} "
                  "--temperature {} "
@@ -157,49 +166,55 @@ upside_opts = (
                  "--record-momentum "
                  "{}"
               )
-upside_opts = upside_opts.format(duration, frame_interval, T, randomseed, restart_str)
 
-if continue_sim:
+restart_str = "--restart-using-momentum" if is_continue else ""
 
-    print ("Archiving prev output...")
+for j in range(n_rep):
+    _, run_j, h5_j, log_j = replica_paths(j)
+    randomseed = np.random.randint(0,100000)
+    upside_opts = upside_opts_tmpl.format(duration, frame_interval, T, randomseed, restart_str)
 
-    localtime = time.asctime( time.localtime(time.time()) )
-    localtime = localtime.replace('  ', ' ')
-    localtime = localtime.replace(' ', '_')
-    localtime = localtime.replace(':', '-')
+    if is_continue:
+        if j > 0:
+            break
+        print ("Archiving prev output...")
 
-    if os.path.exists(log_file):
-        shutil.move(log_file, '{}.bck_{}'.format(log_file, localtime))
-    else:
-        print('Warning: no previous log file {}!'.format(log_file))
+        localtime = time.asctime( time.localtime(time.time()) )
+        localtime = localtime.replace('  ', ' ')
+        localtime = localtime.replace(' ', '_')
+        localtime = localtime.replace(':', '-')
 
-    with tb.open_file(h5_file, 'a') as t:
-        i = 0
-        while 'output_previous_%i'%i in t.root:
-            i += 1
-        new_name = 'output_previous_%i'%i
-        if 'output' in t.root:
-            n = t.root.output
+        if os.path.exists(log_j):
+            shutil.move(log_j, '{}.bck_{}'.format(log_j, localtime))
         else:
-            n = t.get_node('/output_previous_%i'%(i-1))
+            print('Warning: no previous log file {}!'.format(log_j))
 
-        t.root.input.pos[:,:,0] = n.pos[-1,0]
-        mom = n.mom[-1,0]
-        new_mom = mom.reshape(mom.shape[0], mom.shape[1], 1)
-        
-        if '/input/mom' in t:
-            t.remove_node(t.root.input, 'mom', recursive=True)
+        with tb.open_file(h5_j, 'a') as t:
+            i = 0
+            while 'output_previous_%i'%i in t.root:
+                i += 1
+            new_name = 'output_previous_%i'%i
+            if 'output' in t.root:
+                n = t.root.output
+            else:
+                n = t.get_node('/output_previous_%i'%(i-1))
 
-        t.create_earray(t.root.input, 'mom', obj=new_mom,
-                        filters=tb.Filters(complib='zlib', 
-                                           complevel=5, fletcher32=True))
+            t.root.input.pos[:,:,0] = n.pos[-1,0]
+            mom = n.mom[-1,0]
+            new_mom = mom.reshape(mom.shape[0], mom.shape[1], 1)
 
-        if 'output' in t.root:
-            t.root.output._f_rename(new_name)
-else:
-    shutil.copyfile(config_base, h5_file)
+            if '/input/mom' in t:
+                t.remove_node(t.root.input, 'mom', recursive=True)
 
-print ("Running...")
-cmd = "{}/obj/upside {} {} | tee {}".format(upside_path, upside_opts, h5_file, log_file)
-sp.check_call(cmd, shell=True)
+            t.create_earray(t.root.input, 'mom', obj=new_mom,
+                            filters=tb.Filters(complib='zlib',
+                                               complevel=5, fletcher32=True))
 
+            if 'output' in t.root:
+                t.root.output._f_rename(new_name)
+    else:
+        shutil.copyfile(config_base, h5_j)
+
+    print ("Running replica {} / {} ...".format(j + 1, n_rep))
+    cmd = "{}/obj/upside {} {} | tee {}".format(upside_path, upside_opts, h5_j, log_j)
+    sp.check_call(cmd, shell=True)
