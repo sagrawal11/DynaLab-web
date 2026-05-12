@@ -113,192 +113,65 @@ document.addEventListener('DOMContentLoaded', function () {
     const helpModalTitle = document.getElementById('help-modal-title');
     const helpModalBody = document.getElementById('help-modal-body');
     const helpModalClose = document.getElementById('help-modal-close');
+    let helpModalListenersBound = false;
 
     /**
-     * Context help copy for (?) buttons — keyed by data-help on the button.
+     * Rich help copy lives in help-content.js as window.DYNALAB_HELP_CONTENT
+     * (overviewHtml + optional detailHtml). Fallback below if that script fails to load.
      */
-    const HELP_CONTENT = {
-        settings_tamarind: {
-            title: 'Tamarind Bio API key',
-            html: `<p>Tamarind hosts a cloud pipeline that runs <strong>RFdiffusion</strong>, <strong>ProteinMPNN</strong>, and <strong>AlphaFold-Multimer</strong>-style scoring so you get ranked nanobody-style binder candidates.</p><p>The key is stored only in <code>web/server/.env</code> on your machine (gitignored). Without a key, use the mock client in the design card to test the UI without API calls.</p>`,
-        },
-        settings_endpoint: {
-            title: 'API endpoint',
-            html: `<p>Base URL for Tamarind’s REST API. Leave the default unless Tamarind support gives you a different host.</p>`,
-        },
+    const HELP_CONTENT = window.DYNALAB_HELP_CONTENT || {
         upload_pdb: {
             title: 'Structure upload',
-            html: `<p>A <strong>PDB file</strong> lists 3D coordinates for your protein. Upside uses it as the starting geometry for the simulation.</p><p>Use a clean single-chain model when possible. The backend runs Upside preparation and MD on the machine where Flask is running.</p>`,
-        },
-        contact_details: {
-            title: 'Contact information',
-            html: `<p>Optional metadata for who ran the job. It does not change the physics—useful if you share the server or keep lab notes alongside downloads.</p>`,
-        },
-        basic_simulation: {
-            title: 'Basic simulation',
-            html: `<p>Controls how long the run is, how often snapshots are saved, and whether you stay at one temperature or use <strong>replica exchange</strong> (several temperatures with swaps) for broader sampling.</p><p>Upside uses <strong>reduced units</strong> internally; temperature and duration are not literal Kelvin or nanoseconds until you interpret them with the force-field documentation.</p>`,
-        },
-        sim_mode: {
-            title: 'Simulation mode',
-            html: `<p><strong>Constant temperature</strong>: one thermostat, standard MD.</p><p><strong>Replica exchange</strong>: multiple copies of the system at different temperatures periodically attempt swaps—helps cross energy barriers without cranking one run to unrealistic heat.</p>`,
-        },
-        duration_steps: {
-            title: 'Duration (steps)',
-            html: `<p>Total integration steps. More steps mean longer simulation time and more exploration; very short runs are only useful for smoke tests.</p>`,
-        },
-        frame_interval: {
-            title: 'Frame interval',
-            html: `<p>Save a trajectory snapshot every <em>N</em> steps. Smaller intervals give smoother movies and analyses but larger <code>.up</code> files and slower post-processing.</p>`,
-        },
-        temperature_reduced: {
-            title: 'Temperature',
-            html: `<p>Thermostat setting in Upside’s <strong>reduced</strong> unit system (not plain Kelvin). Higher values add kinetic energy and can promote unfolding; lower values keep the structure tighter.</p>`,
-        },
-        replica_exchange: {
-            title: 'Replica exchange',
-            html: `<p>Multiple simulations run in parallel at different temperatures and periodically attempt to swap coordinates. Low replicas explore physically, high replicas help hop barriers; combined, you get better sampling than one very hot run.</p><p><strong>Replica interval</strong> is how often swap moves are proposed.</p>`,
-        },
-        pulling_overview: {
-            title: 'Pulling',
-            html: `<p>Apply external forces to mimic <strong>AFM</strong>, <strong>optical tweezers</strong>, or <strong>centrifuge</strong>-style loading. Use this when you care about partially unfolded states or cryptic epitopes exposed under tension.</p><p>Enable pulling only when your science question needs it—plain MD is simpler when you don’t.</p>`,
-        },
-        pulling_mode: {
-            title: 'Pulling mode',
-            html: `<p><strong>Velocity clamp (AFM-style)</strong>: a spring-connected tip moves at fixed velocity; force rises as the chain resists.</p><p><strong>Constant tension</strong>: target force is applied more directly—closer to how you think about a fixed pN load in a centrifuge lane after calibration.</p>`,
-        },
-        force_sweep: {
-            title: 'Force sweep',
-            html: `<p>Runs many simulations at different target forces (in <strong>piconewtons</strong> after calibration) so you can see which residues become exposed only past a threshold. That is the computational analog of your multi-force centrifuge tube.</p><p>When sweep is enabled, it orchestrates sub-jobs instead of a single pull from card 4.</p>`,
-        },
-        sweep_subsim: {
-            title: 'Sub-simulation type',
-            html: `<p>Same choices as single pulling: constant tension vs velocity clamp, applied inside each sub-job of the sweep.</p>`,
-        },
-        sweep_forces_pn: {
-            title: 'Forces (pN)',
-            html: `<p>Comma-separated list of forces in <strong>piconewtons</strong>. The backend converts to Upside units using your calibration (default factor documented in the force-calibration module).</p><p>Example ladder: <code>14,18,22,26,30,34,38</code> pN across lanes or time points.</p>`,
-        },
-        membrane: {
-            title: 'Membrane',
-            html: `<p>Add implicit membrane boundaries so transmembrane proteins see the right environment. Enable only for membrane systems; adjust inner/outer limits to sandwich the bilayer region.</p>`,
-        },
-        restraints: {
-            title: 'Restraints',
-            html: `<p>Pin atoms or pairs with springs or walls—e.g. staple terminal ends, keep a domain fixed, or mimic attachment chemistry. Formats match Upside’s text tables consumed by the preparation scripts.</p>`,
-        },
-        run_simulation: {
-            title: 'Run',
-            html: `<p>Starts the job on the Flask host: builds the Upside config, runs the binary, and writes logs under <code>web/server/jobs/&lt;id&gt;/</code>. You need name, email (as before), and a PDB selected.</p><p>If <strong>force sweep</strong> is enabled, this button launches the sweep orchestrator instead of one plain job.</p>`,
-        },
-        progress_tracking: {
-            title: 'Progress',
-            html: `<p>Progress is parsed from the simulation log: step count vs target and rough status. Large runs can take a long time—the bar advances when the engine reports new steps.</p>`,
-        },
-        results_download: {
-            title: 'Results',
-            html: `<p>When the run finishes you can download the main trajectory (<code>.up</code> / HDF5). Use that file for the analysis checkboxes below.</p>`,
-        },
-        post_analysis_overview: {
-            title: 'Post-processing analysis',
-            html: `<p>Each analysis reloads the trajectory (or reads sweep folders) and writes PNG plots plus JSON stats. Pick only what you need—contact maps and clustering are heavier than Rg or RMSD.</p><p>These explain mechanics and exposure; they are not a substitute for wet-lab binding validation.</p>`,
-        },
-        analysis_rg: {
-            title: 'Radius of gyration (Rg)',
-            html: `<p>Rg measures how compact the protein is. It grows when the chain expands or unfolds—useful for detecting global unfolding under pull.</p>`,
-        },
-        analysis_rmsd: {
-            title: 'RMSD',
-            html: `<p>Root-mean-square deviation of current structure from the first frame. Rises when the fold drifts or partially unfolds.</p>`,
-        },
-        analysis_rmsf: {
-            title: 'RMSF',
-            html: `<p>Per-residue fluctuation around the average structure—peaks highlight flexible loops or regions that disorder under force.</p>`,
-        },
-        analysis_e2e: {
-            title: 'End-to-end distance',
-            html: `<p>Distance between first and last Cα. For single-domain chains it tracks extension along the pull direction when tension grows.</p>`,
-        },
-        analysis_hbonds: {
-            title: 'Hydrogen bonds',
-            html: `<p>Counts backbone hydrogen bonds per frame (Baker–Hubbard). Drops often track loss of secondary structure during unfolding.</p>`,
-        },
-        analysis_salt: {
-            title: 'Salt bridges',
-            html: `<p>Approximates ionic contacts using Cβ–Cβ distances—a coarse-grained friendly proxy, not a full all-atom salt-bridge energy.</p>`,
-        },
-        analysis_shape: {
-            title: 'Shape descriptors',
-            html: `<p>Asphericity, acylindricity, and anisotropy from the gyration tensor. Elongated states under tension look different from compact globules.</p>`,
-        },
-        analysis_crosscorr: {
-            title: 'Cross-correlation',
-            html: `<p>Which residues move together vs opposite phases—helps spot allosteric coupling or mechanical propagation along the chain.</p>`,
-        },
-        analysis_ss: {
-            title: 'Secondary structure',
-            html: `<p>Assigns helix/sheet/coil per residue over time. Uses DSSP (<code>mkdssp</code>) when installed; otherwise a simplified H-bond-based fallback.</p>`,
-        },
-        analysis_pca: {
-            title: 'PCA',
-            html: `<p>Principal component analysis on Cα coordinates finds principal modes of motion. More components capture finer variance but need more interpretation; 2–3 is typical for visualization.</p>`,
-        },
-        analysis_force_ext: {
-            title: 'Force vs extension',
-            html: `<p>For pulling setups, reconstructs approximate force–extension curves from spring geometry in the trajectory and job metadata.</p>`,
-        },
-        analysis_contacts: {
-            title: 'Contact map',
-            html: `<p>Shows how often residue pairs are in contact across the trajectory. Stable cores stay dark; opening contacts appear under tension.</p><p>Computationally heavier than scalar time series.</p>`,
-        },
-        analysis_burial: {
-            title: 'Burial scan',
-            html: `<p>Tracks solvent exposure per residue over time—good for “cryptic epitope” hypotheses where burial drops only when the domain is stretched.</p>`,
-        },
-        analysis_dihedral: {
-            title: 'Dihedral unfolding',
-            html: `<p>Summarizes how Ramachandran basins change from start to end—complements DSSP for detecting local backbone rearrangements.</p>`,
-        },
-        analysis_cluster: {
-            title: 'Intermediate clustering',
-            html: `<p>Clusters frames in a contact-based feature space and exports representative PDBs to <code>intermediates/</code>. Those frames feed back-mapping and AI design.</p>`,
-        },
-        backmapping: {
-            title: 'All-atom back-mapping',
-            html: `<p>Coarse Upside outputs are not fully atomistic. <strong>PULCHRA</strong> rebuilds all heavy atoms from Cα geometry; optional OpenMM minimization can relieve clashes if installed.</p><p>Downstream binder tools expect all-atom PDBs—run this before the design card.</p>`,
-        },
-        ai_design: {
-            title: 'AI nanobody design',
-            html: `<p>Sends a back-mapped snapshot through an external diffusion + sequence-design + complex-prediction stack (Tamarind). Returns ranked candidates with confidence-style metrics.</p><p>Use the mock client for demos without billing.</p>`,
-        },
-        design_intermediate: {
-            title: 'Intermediate state',
-            html: `<p>Choose which clustered, back-mapped PDB represents the partially unfolded “target face” you want binders against.</p>`,
-        },
-        design_hotspots: {
-            title: 'Hotspot residues',
-            html: `<p>Comma-separated residue indices (often from epitope-candidate analysis) that tell the pipeline where the binder should focus contact.</p>`,
-        },
-        design_n_backbones: {
-            title: 'Number of backbones',
-            html: `<p>How many distinct scaffold backbones RFdiffusion-style sampling requests. More diversity raises cost and runtime; use small numbers while iterating.</p>`,
-        },
-        centrifuge_experiment: {
-            title: 'Centrifuge experiment design',
-            html: `<p>Generates a bench-oriented sheet mapping radial zones to force ranges, attachment chemistry notes, and predicted thresholds—bridging simulation to your wet-lab protocol.</p>`,
-        },
-        exp_zones: {
-            title: 'Radial zones',
-            html: `<p>How many discrete lanes or radii you will use in the tube or rotor—matches how you stratify g-force in the experiment.</p>`,
-        },
-        wetlab_csv: {
-            title: 'Wet-lab CSV',
-            html: `<p>Upload fluorescence or binding readouts vs force. Expected columns include <code>force_pN</code>, <code>fluorescence</code>, <code>replicate</code>, and <code>condition</code> so the server can overlay batches and controls.</p>`,
-        },
-        pred_threshold_pn: {
-            title: 'Predicted threshold (pN)',
-            html: `<p>The force where your computational pipeline predicts epitope exposure or binding onset—drawn on the comparison plot against measured fluorescence.</p>`,
+            overviewHtml: '<p>Help content failed to load. Refresh the page or ensure <code>help-content.js</code> is served next to <code>script.js</code>.</p>',
+            detailHtml: '',
         },
     };
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function buildHelpModalBody(overviewHtml, detailHtml) {
+        const hasDetail = Boolean(detailHtml && String(detailHtml).trim());
+        const detailBlock = hasDetail
+            ? '<div class="help-modal__actions">' +
+                '<button type="button" class="help-modal__more-toggle" aria-expanded="false" aria-controls="help-modal-detail-region">Give me more info</button>' +
+                '</div>' +
+                '<div id="help-modal-detail-region" class="help-modal__detail help-modal__detail--rich hidden" role="region" hidden>' +
+                '<h3 class="help-modal__detail-heading">Plain-language deep dive</h3>' +
+                '<div class="help-modal__detail-prose">' +
+                detailHtml +
+                '</div></div>'
+            : '';
+        return '<div class="help-modal__overview">' + overviewHtml + '</div>' + detailBlock;
+    }
+
+    function openHelpForKey(key) {
+        if (!helpModal || !key) return;
+        const raw = HELP_CONTENT[key];
+        const entry = raw && (raw.overviewHtml != null || raw.html != null)
+            ? raw
+            : {
+                title: 'Help',
+                overviewHtml: `<p>There is no description for this topic yet. Reference key: <code>${escapeHtml(key)}</code>.</p>`,
+                detailHtml: '',
+            };
+        const title = entry.title || 'Help';
+        const overview = entry.overviewHtml ?? entry.html ?? '';
+        const detail = entry.detailHtml ?? '';
+        if (helpModalTitle) helpModalTitle.textContent = title;
+        if (helpModalBody) helpModalBody.innerHTML = buildHelpModalBody(overview, detail);
+        helpModal.classList.remove('hidden');
+        helpModal.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+        requestAnimationFrame(() => {
+            if (helpModalClose) helpModalClose.focus();
+        });
+    }
 
     let selectedFile = null;
     let currentJobId = null;
@@ -1203,13 +1076,25 @@ document.addEventListener('DOMContentLoaded', function () {
     // -------------------------------------------------------------------
     // Context help modal (?)
     // -------------------------------------------------------------------
-    let helpModalListenersBound = false;
-
     function setupHelpModal() {
         if (!helpModal || helpModalListenersBound) return;
         helpModalListenersBound = true;
-        /* Capture phase so (?) opens reliably even when nested in complex controls */
-        document.addEventListener('click', onHelpRelatedClick, true);
+        /* Direct listeners: avoids delegation bugs (Text targets, capture order) */
+        document.querySelectorAll('[data-help]').forEach((btn) => {
+            btn.addEventListener(
+                'click',
+                (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openHelpForKey(btn.getAttribute('data-help'));
+                },
+                true
+            );
+        });
+        if (helpModalBody) {
+            helpModalBody.addEventListener('click', onHelpModalBodyClick);
+        }
+        document.addEventListener('click', onHelpBackdropClick, false);
         if (helpModalClose) {
             helpModalClose.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -1225,27 +1110,42 @@ document.addEventListener('DOMContentLoaded', function () {
         closeHelpModal();
     }
 
-    function onHelpRelatedClick(e) {
-        const closeTarget = e.target.closest('[data-close-help]');
-        if (closeTarget) {
-            if (helpModal && !helpModal.classList.contains('hidden')) {
-                e.preventDefault();
-                closeHelpModal();
-            }
-            return;
-        }
-        const btn = e.target.closest('[data-help]');
-        if (!btn) return;
+    function onHelpModalBodyClick(e) {
+        const btn = e.target.closest('.help-modal__more-toggle');
+        if (!btn || !helpModalBody || !helpModalBody.contains(btn)) return;
         e.preventDefault();
         e.stopPropagation();
-        const key = btn.getAttribute('data-help');
-        const entry = HELP_CONTENT[key];
-        if (!entry) return;
-        if (helpModalTitle) helpModalTitle.textContent = entry.title;
-        if (helpModalBody) helpModalBody.innerHTML = entry.html;
-        helpModal.classList.remove('hidden');
-        helpModal.setAttribute('aria-hidden', 'false');
-        document.body.style.overflow = 'hidden';
+        const panel = helpModalBody.querySelector('.help-modal__detail');
+        if (!panel) return;
+        const expanded = btn.getAttribute('aria-expanded') === 'true';
+        if (expanded) {
+            panel.classList.add('hidden');
+            panel.hidden = true;
+            btn.setAttribute('aria-expanded', 'false');
+            btn.textContent = 'Give me more info';
+        } else {
+            panel.classList.remove('hidden');
+            panel.hidden = false;
+            btn.setAttribute('aria-expanded', 'true');
+            btn.textContent = 'Show less';
+        }
+    }
+
+    /** Clicks on text inside <button> can yield a Text node target (no .closest). */
+    function elementFromEventTarget(t) {
+        if (!t) return null;
+        if (t.nodeType === Node.ELEMENT_NODE) return t;
+        if (t.nodeType === Node.TEXT_NODE && t.parentElement) return t.parentElement;
+        return null;
+    }
+
+    function onHelpBackdropClick(e) {
+        const el = elementFromEventTarget(e.target);
+        if (!el || !el.closest('[data-close-help]')) return;
+        if (helpModal && !helpModal.classList.contains('hidden')) {
+            e.preventDefault();
+            closeHelpModal();
+        }
     }
 
     function closeHelpModal() {

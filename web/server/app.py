@@ -146,6 +146,12 @@ def intermediate_static(filename):
     return send_from_directory(WEB_DIR / "intermediate", filename)
 
 
+@app.route("/media/<path:filename>")
+def media_static(filename):
+    """Shared images/GIFs for help copy and docs under web/media/."""
+    return send_from_directory(WEB_DIR / "media", filename)
+
+
 # ---------------------------------------------------------------------------
 # Status helpers
 # ---------------------------------------------------------------------------

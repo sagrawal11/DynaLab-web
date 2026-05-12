@@ -83,11 +83,17 @@
                 </div>
                 <div class="card-content">
                     <div class="input-group">
-                        <label for="user-name">Name</label>
+                        <div class="label-with-help">
+                            <label for="user-name">Name</label>
+                            <button type="button" class="help-btn" data-help="contact_name" aria-label="Help: name">?</button>
+                        </div>
                         <input type="text" id="user-name" placeholder="Enter your name">
                     </div>
                     <div class="input-group">
-                        <label for="user-email">Email</label>
+                        <div class="label-with-help">
+                            <label for="user-email">Email</label>
+                            <button type="button" class="help-btn" data-help="contact_email" aria-label="Help: email">?</button>
+                        </div>
                         <input type="email" id="user-email" placeholder="Enter your email">
                         <p class="param-description">
                             Simulation results will be made available via this email address.
@@ -176,7 +182,10 @@
                         </h3>
                         <div class="config-grid">
                             <div class="config-group">
-                                <label for="n-replicas">Number of Replicas</label>
+                                <div class="label-with-help">
+                                    <label for="n-replicas">Number of replicas</label>
+                                    <button type="button" class="help-btn" data-help="replica_n_replicas" aria-label="Help: number of replicas">?</button>
+                                </div>
                                 <div class="slider-container">
                                     <input type="range" id="n-replicas" min="2" max="16" step="1" value="8">
                                     <span class="slider-value" id="replicas-value">8</span>
@@ -187,7 +196,10 @@
                             </div>
 
                             <div class="config-group">
-                                <label for="temp-low">T_low</label>
+                                <div class="label-with-help">
+                                    <label for="temp-low">T_low</label>
+                                    <button type="button" class="help-btn" data-help="replica_t_low" aria-label="Help: T low">?</button>
+                                </div>
                                 <div class="slider-container">
                                     <input type="range" id="temp-low" min="0.5" max="1.2" step="0.05" value="0.80">
                                     <span class="slider-value" id="temp-low-value">0.80</span>
@@ -198,7 +210,10 @@
                             </div>
 
                             <div class="config-group">
-                                <label for="temp-high">T_high</label>
+                                <div class="label-with-help">
+                                    <label for="temp-high">T_high</label>
+                                    <button type="button" class="help-btn" data-help="replica_t_high" aria-label="Help: T high">?</button>
+                                </div>
                                 <div class="slider-container">
                                     <input type="range" id="temp-high" min="0.8" max="1.5" step="0.05" value="0.94">
                                     <span class="slider-value" id="temp-high-value">0.94</span>
@@ -209,7 +224,10 @@
                             </div>
 
                             <div class="config-group">
-                                <label for="replica-interval">Replica Interval</label>
+                                <div class="label-with-help">
+                                    <label for="replica-interval">Replica interval</label>
+                                    <button type="button" class="help-btn" data-help="replica_interval" aria-label="Help: replica interval">?</button>
+                                </div>
                                 <div class="slider-container">
                                     <input type="range" id="replica-interval" min="5" max="50" step="5" value="10">
                                     <span class="slider-value" id="replica-interval-value">10</span>
@@ -254,7 +272,9 @@
                     </div>
 
                     <div class="pulling-setup" id="afm-setup">
-                        <h3>AFM Configuration (velocity clamp)</h3>
+                        <h3 class="subsection-title">AFM configuration (velocity clamp)
+                            <button type="button" class="help-btn help-btn--inline" data-help="pulling_afm_config" aria-label="Help: AFM fields">?</button>
+                        </h3>
                         <div class="afm-entries" id="afm-entries">
                             <div class="afm-entry">
                                 <div class="afm-entry-header">
@@ -297,7 +317,9 @@
                     </div>
 
                     <div class="pulling-setup hidden" id="tension-setup">
-                        <h3>Tension Configuration (constant force)</h3>
+                        <h3 class="subsection-title">Tension configuration (constant force)
+                            <button type="button" class="help-btn help-btn--inline" data-help="pulling_tension_config" aria-label="Help: tension fields">?</button>
+                        </h3>
                         <p class="param-description">
                             Apply equal-and-opposite forces at two residues. Forces are in Upside
                             reduced units (kT / Å); the force-sweep mode below converts piconewtons
@@ -367,15 +389,24 @@
                             <p class="param-description">Linear force ladder across the centrifuge's accessible range.</p>
                         </div>
                         <div class="config-group">
-                            <label for="sweep-replicas">Replicas per force</label>
+                            <div class="label-with-help">
+                                <label for="sweep-replicas">Replicas per force</label>
+                                <button type="button" class="help-btn" data-help="sweep_replicas" aria-label="Help: replicas per force">?</button>
+                            </div>
                             <input type="number" id="sweep-replicas" min="1" max="8" value="2">
                         </div>
                         <div class="config-group">
-                            <label for="sweep-anchor">Anchor residue</label>
+                            <div class="label-with-help">
+                                <label for="sweep-anchor">Anchor residue</label>
+                                <button type="button" class="help-btn" data-help="sweep_anchor" aria-label="Help: anchor residue">?</button>
+                            </div>
                             <input type="number" id="sweep-anchor" min="0" value="0">
                         </div>
                         <div class="config-group">
-                            <label for="sweep-puller">Pull residue (-1 = last)</label>
+                            <div class="label-with-help">
+                                <label for="sweep-puller">Pull residue (-1 = last)</label>
+                                <button type="button" class="help-btn" data-help="sweep_pull_residue" aria-label="Help: pull residue">?</button>
+                            </div>
                             <input type="number" id="sweep-puller" value="-1">
                         </div>
                     </div>
@@ -412,7 +443,10 @@
                 <div class="card-content" id="membrane-content">
                     <div class="config-grid">
                         <div class="config-group">
-                            <label for="membrane-coord-system">Coordinate System</label>
+                            <div class="label-with-help">
+                                <label for="membrane-coord-system">Coordinate system</label>
+                                <button type="button" class="help-btn" data-help="membrane_coord_system" aria-label="Help: membrane coordinates">?</button>
+                            </div>
                             <select id="membrane-coord-system">
                                 <option value="cartesian">Cartesian (z-coordinate)</option>
                                 <option value="spherical">Spherical (h-coordinate)</option>
@@ -423,7 +457,10 @@
                         </div>
 
                         <div class="config-group">
-                            <label for="membrane-inner">Inner Boundary</label>
+                            <div class="label-with-help">
+                                <label for="membrane-inner">Inner boundary</label>
+                                <button type="button" class="help-btn" data-help="membrane_inner_bound" aria-label="Help: inner boundary">?</button>
+                            </div>
                             <div class="slider-container">
                                 <input type="range" id="membrane-inner" min="-25" max="0" step="1" value="-16">
                                 <span class="slider-value" id="inner-value">-16</span>
@@ -434,7 +471,10 @@
                         </div>
 
                         <div class="config-group">
-                            <label for="membrane-outer">Outer Boundary</label>
+                            <div class="label-with-help">
+                                <label for="membrane-outer">Outer boundary</label>
+                                <button type="button" class="help-btn" data-help="membrane_outer_bound" aria-label="Help: outer boundary">?</button>
+                            </div>
                             <div class="slider-container">
                                 <input type="range" id="membrane-outer" min="0" max="25" step="1" value="16">
                                 <span class="slider-value" id="outer-value">16</span>
@@ -445,7 +485,10 @@
                         </div>
 
                         <div class="config-group">
-                            <label>Membrane Options</label>
+                            <div class="label-with-help">
+                                <label>Membrane options</label>
+                                <button type="button" class="help-btn" data-help="membrane_recenter_opts" aria-label="Help: membrane options">?</button>
+                            </div>
                             <div class="checkbox-group">
                                 <label class="checkbox-label">
                                     <input type="checkbox" id="disable-recentering">
@@ -476,7 +519,9 @@
                 <div class="card-content" id="restraints-content">
                     <div class="restraint-types">
                         <div class="restraint-section">
-                            <h3>Fixed Wall Restraints</h3>
+                            <h3 class="subsection-title">Fixed wall restraints
+                                <button type="button" class="help-btn help-btn--inline" data-help="restraint_fixed_wall" aria-label="Help: fixed wall">?</button>
+                            </h3>
                             <label class="checkbox-label">
                                 <input type="checkbox" id="enable-wall-const">
                                 <span>Enable Fixed Wall</span>
@@ -489,7 +534,9 @@
                         </div>
 
                         <div class="restraint-section">
-                            <h3>Pair Wall Restraints</h3>
+                            <h3 class="subsection-title">Pair wall restraints
+                                <button type="button" class="help-btn help-btn--inline" data-help="restraint_pair_wall" aria-label="Help: pair wall">?</button>
+                            </h3>
                             <label class="checkbox-label">
                                 <input type="checkbox" id="enable-wall-pair">
                                 <span>Enable Pair Wall</span>
@@ -502,7 +549,9 @@
                         </div>
 
                         <div class="restraint-section">
-                            <h3>Fixed Spring Restraints</h3>
+                            <h3 class="subsection-title">Fixed spring restraints
+                                <button type="button" class="help-btn help-btn--inline" data-help="restraint_fixed_spring" aria-label="Help: fixed spring">?</button>
+                            </h3>
                             <label class="checkbox-label">
                                 <input type="checkbox" id="enable-spring-const">
                                 <span>Enable Fixed Spring</span>
@@ -515,7 +564,9 @@
                         </div>
 
                         <div class="restraint-section">
-                            <h3>Pair Spring Restraints</h3>
+                            <h3 class="subsection-title">Pair spring restraints
+                                <button type="button" class="help-btn help-btn--inline" data-help="restraint_pair_spring" aria-label="Help: pair spring">?</button>
+                            </h3>
                             <label class="checkbox-label">
                                 <input type="checkbox" id="enable-spring-pair">
                                 <span>Enable Pair Spring</span>
@@ -528,7 +579,9 @@
                         </div>
 
                         <div class="restraint-section">
-                            <h3>Nail Restraints</h3>
+                            <h3 class="subsection-title">Nail restraints
+                                <button type="button" class="help-btn help-btn--inline" data-help="restraint_nail" aria-label="Help: nail restraint">?</button>
+                            </h3>
                             <label class="checkbox-label">
                                 <input type="checkbox" id="enable-nail">
                                 <span>Enable Nail Restraint</span>
@@ -797,18 +850,27 @@
                         <input type="number" id="design-n-designs" min="1" max="500" value="50">
                     </div>
                     <div class="config-group">
-                        <label for="design-binder-length">Binder length (residues)</label>
+                        <div class="label-with-help">
+                            <label for="design-binder-length">Binder length (residues)</label>
+                            <button type="button" class="help-btn" data-help="design_binder_length" aria-label="Help: binder length">?</button>
+                        </div>
                         <input type="number" id="design-binder-length" min="40" max="200" value="100">
                     </div>
                     <div class="config-group">
-                        <label for="design-n-seqs">MPNN sequences per backbone</label>
+                        <div class="label-with-help">
+                            <label for="design-n-seqs">MPNN sequences per backbone</label>
+                            <button type="button" class="help-btn" data-help="design_n_seqs_mpnn" aria-label="Help: MPNN sequences">?</button>
+                        </div>
                         <input type="number" id="design-n-seqs" min="1" max="32" value="8">
                     </div>
                     <div class="config-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="design-use-mock">
-                            <span>Use mock client (offline / testing)</span>
-                        </label>
+                        <div class="help-inline-row">
+                            <label class="checkbox-label" for="design-use-mock">
+                                <input type="checkbox" id="design-use-mock">
+                                <span>Use mock client (offline / testing)</span>
+                            </label>
+                            <button type="button" class="help-btn help-btn--inline" data-help="design_use_mock" aria-label="Help: mock client">?</button>
+                        </div>
                     </div>
                 </div>
                 <button id="run-design-btn" type="button" class="run-button">
@@ -839,19 +901,31 @@
                         <input type="number" id="exp-zones" min="1" max="20" value="10">
                     </div>
                     <div class="config-group">
-                        <label for="exp-force-low">Force range low (pN)</label>
+                        <div class="label-with-help">
+                            <label for="exp-force-low">Force range low (pN)</label>
+                            <button type="button" class="help-btn" data-help="exp_force_range_low" aria-label="Help: force low">?</button>
+                        </div>
                         <input type="number" id="exp-force-low" min="1" max="200" value="14">
                     </div>
                     <div class="config-group">
-                        <label for="exp-force-high">Force range high (pN)</label>
+                        <div class="label-with-help">
+                            <label for="exp-force-high">Force range high (pN)</label>
+                            <button type="button" class="help-btn" data-help="exp_force_range_high" aria-label="Help: force high">?</button>
+                        </div>
                         <input type="number" id="exp-force-high" min="1" max="200" value="38">
                     </div>
                     <div class="config-group">
-                        <label for="exp-thresholds">Predicted thresholds (pN)</label>
+                        <div class="label-with-help">
+                            <label for="exp-thresholds">Predicted thresholds (pN)</label>
+                            <button type="button" class="help-btn" data-help="exp_thresholds_list" aria-label="Help: thresholds">?</button>
+                        </div>
                         <input type="text" id="exp-thresholds" placeholder="e.g. 18.5,26.4">
                     </div>
                     <div class="config-group">
-                        <label for="exp-attachment">Attachment chemistry</label>
+                        <div class="label-with-help">
+                            <label for="exp-attachment">Attachment chemistry</label>
+                            <button type="button" class="help-btn" data-help="exp_attachment_chemistry" aria-label="Help: attachment">?</button>
+                        </div>
                         <select id="exp-attachment">
                             <option value="his-tag">His-tag / Ni-NTA</option>
                             <option value="biotin-streptavidin">Biotin / Streptavidin</option>
@@ -909,6 +983,7 @@
         </div>
     </div>
 
+    <script src="help-content.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

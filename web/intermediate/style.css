@@ -186,9 +186,14 @@ main > .card:nth-child(7) { animation-delay: calc(7 * var(--stagger-delay)); }
     padding: 1.35rem 1.35rem 1.5rem;
 }
 
-/* (? ) context help buttons */
+/* (? ) context help */
 .help-btn {
     flex-shrink: 0;
+    position: relative;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     width: 1.35rem;
     height: 1.35rem;
     padding: 0;
@@ -232,6 +237,20 @@ main > .card:nth-child(7) { animation-delay: calc(7 * var(--stagger-delay)); }
     margin-bottom: 0;
 }
 
+/* Checkbox + (?) on one row (e.g. mock client) */
+.help-inline-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.help-inline-row .checkbox-label {
+    flex: 1;
+    min-width: 0;
+}
+
 .section-heading {
     display: flex;
     align-items: center;
@@ -257,9 +276,17 @@ main > .card:nth-child(7) { animation-delay: calc(7 * var(--stagger-delay)); }
     font-size: 1rem;
     font-weight: 600;
     color: var(--text);
+    flex-wrap: wrap;
 }
 
-/* Help modal */
+h3.subsection-title {
+    width: 100%;
+}
+
+.restraint-types > .restraint-section:first-child h3.subsection-title {
+    margin-top: 0;
+}
+
 /* Help modal (above settings dialog) */
 .help-modal {
     position: fixed;
@@ -358,8 +385,126 @@ main > .card:nth-child(7) { animation-delay: calc(7 * var(--stagger-delay)); }
     border-radius: 4px;
 }
 
+.help-modal__media {
+    margin: 0.75rem 0 1rem;
+    text-align: center;
+}
+
+.help-modal__media img {
+    max-width: 100%;
+    height: auto;
+    vertical-align: middle;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface-soft);
+}
+
+.help-modal__caption {
+    margin-top: 0.45rem;
+    font-size: 0.82rem;
+    color: #64748b;
+    line-height: 1.45;
+}
+
+.help-modal__overview {
+    margin-bottom: 0.25rem;
+}
+
+.help-modal__actions {
+    margin: 0.85rem 0 0.35rem;
+}
+
+.help-modal__more-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.45rem 0.95rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--accent);
+    background: var(--surface);
+    color: var(--accent-strong);
+    font-size: 0.86rem;
+    font-weight: 600;
+    font-family: var(--font);
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.help-modal__more-toggle:hover {
+    background: var(--accent-soft);
+}
+
+.help-modal__more-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.help-modal__detail {
+    margin-top: 0.65rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--border);
+}
+
+.help-modal__detail-heading {
+    margin: 0 0 0.65rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.02em;
+}
+
+.help-modal__detail-prose {
+    font-size: 0.88rem;
+    color: #334155;
+    line-height: 1.65;
+}
+
+.help-modal__detail-prose p {
+    margin: 0 0 0.75rem;
+}
+
+.help-modal__detail-prose p:last-child {
+    margin-bottom: 0;
+}
+
+.help-modal__detail-prose h4 {
+    margin: 1rem 0 0.4rem;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.help-modal__detail-prose h4:first-child {
+    margin-top: 0;
+}
+
+.help-modal__detail-prose ul {
+    margin: 0.35rem 0 0.75rem 1.1rem;
+    padding: 0;
+}
+
+.help-modal__detail-prose li {
+    margin-bottom: 0.35rem;
+}
+
+/* Grey out disabled sections but keep (?) help clickable — never use pointer-events:none
+   on the whole .card-content; it blocks children in most browsers. */
 .card-content.disabled {
-    opacity: 0.5;
+    opacity: 0.55;
+}
+
+.card-content.disabled input:not([type="checkbox"]):not([type="radio"]),
+.card-content.disabled select,
+.card-content.disabled textarea,
+.card-content.disabled .slider-container,
+.card-content.disabled .file-upload,
+.card-content.disabled .afm-entry,
+.card-content.disabled .tension-entries,
+.card-content.disabled .restraint-text-area,
+.card-content.disabled .add-btn,
+.card-content.disabled .remove-afm-btn,
+.card-content.disabled .remove-tension-btn,
+.card-content.disabled .run-button {
     pointer-events: none;
 }
 
@@ -940,6 +1085,7 @@ input:where([type="text"], [type="email"], [type="number"], [type="password"], [
 .analysis-option-row .help-btn {
     align-self: flex-start;
     margin-top: 0.15rem;
+    z-index: 2;
 }
 
 .analysis-option-row--pca .checkbox-label span {
