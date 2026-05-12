@@ -112,7 +112,6 @@ main {
 }
 
 main > .card,
-main > .progress-section,
 main > .results-section {
     animation: fade-up 0.5s ease both;
 }
@@ -907,6 +906,22 @@ input:where([type="text"], [type="email"], [type="number"], [type="password"], [
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+}
+
+/* Progress inside Run card (single job + sweep share this block) */
+.run-card .progress-section--in-run-card {
+    margin-top: 1.25rem;
+    padding: 1.1rem 0 0;
+    border-top: 1px solid var(--border);
+    background: transparent;
+    box-shadow: none;
+    border-radius: 0;
+    border: none;
+}
+
+.run-card .progress-section--in-run-card .section-heading h2 {
+    font-size: 1.08rem;
+    margin-bottom: 0.85rem;
 }
 
 /* Progress section */

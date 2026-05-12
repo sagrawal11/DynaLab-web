@@ -687,27 +687,25 @@
                         <span class="btn-text">Run Simulation</span>
                         <div class="spinner hidden"></div>
                     </button>
-                </div>
-            </div>
-
-            <!-- Progress Section -->
-            <div id="progress-section" class="progress-section hidden">
-                <div class="section-heading">
-                    <h2>Progress</h2>
-                    <button type="button" class="help-btn" data-help="progress_tracking" aria-label="Help: progress">?</button>
-                </div>
-                <div class="progress-bar">
-                    <div id="progress-fill" class="progress-fill"></div>
-                </div>
-                <div id="progress-text" class="progress-text">Initializing...</div>
-                <div class="progress-details">
-                    <div class="progress-stats">
-                        <span id="current-step">Step: 0</span>
-                        <span id="current-energy">Energy: -- kT</span>
-                        <span id="elapsed-time">Time: 0s</span>
+                    <div id="progress-section" class="progress-section progress-section--in-run-card hidden">
+                        <div class="section-heading">
+                            <h2>Run status</h2>
+                            <button type="button" class="help-btn" data-help="progress_tracking" aria-label="Help: progress">?</button>
+                        </div>
+                        <div class="progress-bar">
+                            <div id="progress-fill" class="progress-fill"></div>
+                        </div>
+                        <div id="progress-text" class="progress-text">Initializing...</div>
+                        <div class="progress-details">
+                            <div class="progress-stats">
+                                <span id="current-step">Step: 0</span>
+                                <span id="current-energy">Energy: -- kT</span>
+                                <span id="elapsed-time">Time: 0s</span>
+                            </div>
+                        </div>
+                        <div id="log-output" class="log-output hidden"></div>
                     </div>
                 </div>
-                <div id="log-output" class="log-output hidden"></div>
             </div>
 
             <!-- Results Section -->

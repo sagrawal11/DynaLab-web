@@ -50,7 +50,7 @@ The server invokes the existing scripts in `start/`:
 
 Replica exchange cannot be combined with pulling; the API returns `400` if both are requested.
 
-For plain MD, `basicIndependentReplicas` (1–32, default 1) is passed as a 10th argument to `Single_Replica.py`: values greater than 1 run that many sequential simulations with independent random seeds; outputs go to `outputs/sim_r{j}/` and download is a zip of all `.run.up` files.
+For plain MD, `basicIndependentReplicas` (1–32, default 1) is passed as a 10th argument to `Single_Replica.py`: values greater than 1 run that many independent simulations with distinct random seeds; outputs go to `outputs/sim_r{j}/` and download is a zip of all `.run.up` files. Those replicas run **concurrently** (thread pool), up to `min(replica_count, os.cpu_count())` simultaneous `obj/upside` processes. Override the cap with environment variable `DYNALAB_REPLICA_MAX_PARALLEL` (integer ≥ 1). Restart (`continue_sim` true) stays a single sequential run.
 
 **Restraints:** `distanceLockPairs` and optional `restraintGroupRigidSpring` (default `true`: server uses a high `pair_spring` constant for near-rigid pairs); manual pair-spring text can still be used. These produce `spring-pair-xyz.dat` in the job directory; the server passes that filename to the start scripts as ``pair_spring``. Other restraint types in the UI (walls, nails, fixed springs) are not yet wired through this backend.
 

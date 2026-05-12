@@ -528,6 +528,61 @@ def _collect_basic_trajectories(job_dir: Path) -> list[Path]:
     return paths
 
 
+def _collect_sweep_trajectories_for_analysis(
+    job_dir: Path, sweep_sub_dir: str | None
+) -> list[Path]:
+    """Return ``sim.run.up`` paths from a completed force sweep (manifest order).
+
+    Sweeps never populate ``job_dir/outputs/sim/``; each sub-run lives under
+    ``sweeps/<sweep_id>/<sub_dir>/outputs/sim/sim.run.up``.
+
+    If ``sweep_sub_dir`` is set, it must match a *completed* manifest ``sub_dir``
+    (e.g. ``F_22.0pN_rep_0``) and only that trajectory is returned. Otherwise all
+    completed sub-jobs with an on-disk trajectory are returned.
+    """
+    status: dict = {}
+    try:
+        status = _read_status(job_dir)
+    except Exception:
+        return []
+    sweep_id = status.get("sweep_id")
+    if not sweep_id:
+        return []
+    sweep_dir = job_dir / "sweeps" / sweep_id
+    manifest_path = sweep_dir / "manifest.json"
+    if not manifest_path.is_file():
+        return []
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except Exception:
+        return []
+    sub_jobs = manifest.get("sub_jobs") or []
+    completed_dirs = [
+        e["sub_dir"]
+        for e in sub_jobs
+        if e.get("status") == "completed" and isinstance(e.get("sub_dir"), str)
+    ]
+    if not completed_dirs:
+        return []
+
+    if sweep_sub_dir:
+        rel = sweep_sub_dir.replace("\\", "/").strip("/")
+        if ".." in rel or "/" in rel:
+            return []
+        if rel not in completed_dirs:
+            return []
+        ordered = [rel]
+    else:
+        ordered = completed_dirs
+
+    out: list[Path] = []
+    for sd in ordered:
+        traj = sweep_dir / sd / "outputs" / "sim" / "sim.run.up"
+        if traj.is_file():
+            out.append(traj)
+    return out
+
+
 def _mean_numeric_stats_across_replicas(stats_list: list[dict]) -> dict:
     """Average scalar stats across replicas; skip booleans and ambiguous integer indices."""
     if not stats_list:
@@ -1065,7 +1120,10 @@ def get_calibration():
 
 def _resolve_traj_for_job(job_dir: Path) -> Path | None:
     paths = _collect_basic_trajectories(job_dir)
-    return paths[0] if paths else None
+    if paths:
+        return paths[0]
+    sweep_paths = _collect_sweep_trajectories_for_analysis(job_dir, None)
+    return sweep_paths[0] if sweep_paths else None
 
 
 @app.route("/api/jobs/<job_id>/analyze", methods=["POST"])
@@ -1074,7 +1132,21 @@ def analyze_job(job_id):
     if not job_dir.exists():
         return jsonify({"error": "Job not found"}), 404
 
-    paths = _collect_basic_trajectories(job_dir)
+    body = request.get_json(silent=True) or {}
+    sweep_sub = body.get("sweep_sub_dir")
+    sweep_sub_str = (
+        sweep_sub.strip()
+        if isinstance(sweep_sub, str) and sweep_sub.strip()
+        else None
+    )
+
+    basic_paths = _collect_basic_trajectories(job_dir)
+    if basic_paths:
+        paths = basic_paths
+        force_sweep_multi = False
+    else:
+        paths = _collect_sweep_trajectories_for_analysis(job_dir, sweep_sub_str)
+        force_sweep_multi = bool(paths)
     if not paths:
         return jsonify({"error": "Trajectory not ready"}), 400
 
@@ -1086,7 +1158,6 @@ def analyze_job(job_id):
         except Exception:
             cfg = {}
 
-    body = request.get_json(silent=True) or {}
     requested = body.get("analyses") or []
     if not isinstance(requested, list) or not requested:
         return jsonify({"error": "Body must include non-empty 'analyses' list"}), 400
@@ -1143,12 +1214,16 @@ def analyze_job(job_id):
                 )
                 attach_urls_nested(res, label)
                 per[label] = res
-            ensemble_kind = (
-                "replica_exchange"
-                if (cfg.get("simulationMode") or "").strip().lower() == "replica"
-                else "independent"
-            )
-            agg = _aggregate_analysis_across_replicas(per, ensemble_kind)
+            if force_sweep_multi and len(paths) > 1:
+                ensemble_kind = "force_sweep"
+                agg: dict = {}
+            else:
+                ensemble_kind = (
+                    "replica_exchange"
+                    if (cfg.get("simulationMode") or "").strip().lower() == "replica"
+                    else "independent"
+                )
+                agg = _aggregate_analysis_across_replicas(per, ensemble_kind)
             payload = {
                 "multi_replica": True,
                 "ensemble_kind": ensemble_kind,

@@ -1,10 +1,14 @@
 #!/usr/bin/env python
 
-import sys, os, shutil
+import os
+import sys
+import shutil
 import subprocess as sp
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import numpy as np
 import tables as tb
-import time
 
 upside_path = os.environ['UPSIDE_HOME']
 upside_utils_dir = os.path.expanduser(upside_path+"/py")
@@ -169,52 +173,117 @@ upside_opts_tmpl = (
 
 restart_str = "--restart-using-momentum" if is_continue else ""
 
-for j in range(n_rep):
-    _, run_j, h5_j, log_j = replica_paths(j)
-    randomseed = np.random.randint(0,100000)
-    upside_opts = upside_opts_tmpl.format(duration, frame_interval, T, randomseed, restart_str)
 
-    if is_continue:
-        if j > 0:
-            break
-        print ("Archiving prev output...")
-
-        localtime = time.asctime( time.localtime(time.time()) )
-        localtime = localtime.replace('  ', ' ')
-        localtime = localtime.replace(' ', '_')
-        localtime = localtime.replace(':', '-')
-
-        if os.path.exists(log_j):
-            shutil.move(log_j, '{}.bck_{}'.format(log_j, localtime))
-        else:
-            print('Warning: no previous log file {}!'.format(log_j))
-
-        with tb.open_file(h5_j, 'a') as t:
-            i = 0
-            while 'output_previous_%i'%i in t.root:
-                i += 1
-            new_name = 'output_previous_%i'%i
-            if 'output' in t.root:
-                n = t.root.output
-            else:
-                n = t.get_node('/output_previous_%i'%(i-1))
-
-            t.root.input.pos[:,:,0] = n.pos[-1,0]
-            mom = n.mom[-1,0]
-            new_mom = mom.reshape(mom.shape[0], mom.shape[1], 1)
-
-            if '/input/mom' in t:
-                t.remove_node(t.root.input, 'mom', recursive=True)
-
-            t.create_earray(t.root.input, 'mom', obj=new_mom,
-                            filters=tb.Filters(complib='zlib',
-                                               complevel=5, fletcher32=True))
-
-            if 'output' in t.root:
-                t.root.output._f_rename(new_name)
+def _replica_pool_max_workers(num_replicas: int) -> int:
+    """Cap concurrent Upside processes for independent replicas (default: ``cpu_count``)."""
+    cpu = os.cpu_count() or 1
+    raw = os.environ.get("DYNALAB_REPLICA_MAX_PARALLEL", "").strip()
+    if raw:
+        try:
+            cap = int(raw)
+        except ValueError:
+            cap = cpu
+        cap = max(1, cap)
     else:
-        shutil.copyfile(config_base, h5_j)
+        cap = cpu
+    return max(1, min(int(num_replicas), cap))
 
-    print ("Running replica {} / {} ...".format(j + 1, n_rep))
+
+def _run_upside_subprocess(j_index: int, randomseed: int) -> None:
+    """Launch one Upside integration (assumes ``h5_j`` already prepared for this replica)."""
+    _, _run_j, h5_j, log_j = replica_paths(j_index)
+    upside_opts = upside_opts_tmpl.format(
+        duration, frame_interval, T, randomseed, restart_str
+    )
+    print("Running replica {} / {} ...".format(j_index + 1, n_rep))
     cmd = "{}/obj/upside {} {} | tee {}".format(upside_path, upside_opts, h5_j, log_j)
     sp.check_call(cmd, shell=True)
+
+
+if is_continue:
+    # Restart path: single replica only (see warning above); keep strictly sequential.
+    for j in range(n_rep):
+        _, run_j, h5_j, log_j = replica_paths(j)
+        randomseed = np.random.randint(0, 100000)
+        upside_opts = upside_opts_tmpl.format(
+            duration, frame_interval, T, randomseed, restart_str
+        )
+
+        if j > 0:
+            break
+        print("Archiving prev output...")
+
+        localtime = time.asctime(time.localtime(time.time()))
+        localtime = localtime.replace("  ", " ")
+        localtime = localtime.replace(" ", "_")
+        localtime = localtime.replace(":", "-")
+
+        if os.path.exists(log_j):
+            shutil.move(log_j, "{}.bck_{}".format(log_j, localtime))
+        else:
+            print("Warning: no previous log file {}!".format(log_j))
+
+        with tb.open_file(h5_j, "a") as t:
+            i = 0
+            while "output_previous_%i" % i in t.root:
+                i += 1
+            new_name = "output_previous_%i" % i
+            if "output" in t.root:
+                n = t.root.output
+            else:
+                n = t.get_node("/output_previous_%i" % (i - 1))
+
+            t.root.input.pos[:, :, 0] = n.pos[-1, 0]
+            mom = n.mom[-1, 0]
+            new_mom = mom.reshape(mom.shape[0], mom.shape[1], 1)
+
+            if "/input/mom" in t:
+                t.remove_node(t.root.input, "mom", recursive=True)
+
+            t.create_earray(
+                t.root.input,
+                "mom",
+                obj=new_mom,
+                filters=tb.Filters(complib="zlib", complevel=5, fletcher32=True),
+            )
+
+            if "output" in t.root:
+                t.root.output._f_rename(new_name)
+
+        print("Running replica {} / {} ...".format(j + 1, n_rep))
+        cmd = "{}/obj/upside {} {} | tee {}".format(upside_path, upside_opts, h5_j, log_j)
+        sp.check_call(cmd, shell=True)
+
+elif n_rep <= 1:
+    j = 0
+    _, run_j, h5_j, log_j = replica_paths(j)
+    randomseed = np.random.randint(0, 100000)
+    upside_opts = upside_opts_tmpl.format(
+        duration, frame_interval, T, randomseed, restart_str
+    )
+    shutil.copyfile(config_base, h5_j)
+    print("Running replica {} / {} ...".format(j + 1, n_rep))
+    cmd = "{}/obj/upside {} {} | tee {}".format(upside_path, upside_opts, h5_j, log_j)
+    sp.check_call(cmd, shell=True)
+
+else:
+    # Independent replicas: same seed draw order as the old sequential loop, then
+    # run up to min(n_rep, cpu_count) Upside processes concurrently.
+    replica_seeds = [np.random.randint(0, 100000) for _ in range(n_rep)]
+    for j in range(n_rep):
+        _, _rj, h5_j, _log_j = replica_paths(j)
+        shutil.copyfile(config_base, h5_j)
+
+    max_workers = _replica_pool_max_workers(n_rep)
+    print(
+        "Running {} independent replicas with up to {} concurrent Upside processes ...".format(
+            n_rep, max_workers
+        )
+    )
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = [
+            pool.submit(_run_upside_subprocess, j, replica_seeds[j])
+            for j in range(n_rep)
+        ]
+        for fut in as_completed(futures):
+            fut.result()

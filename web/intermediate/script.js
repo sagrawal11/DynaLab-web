@@ -57,9 +57,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const sweepReplicas = document.getElementById('sweep-replicas');
     const sweepAnchor = document.getElementById('sweep-anchor');
     const sweepPuller = document.getElementById('sweep-puller');
-    const sweepProgress = document.getElementById('sweep-progress');
-    const sweepProgressFill = document.getElementById('sweep-progress-fill');
-    const sweepProgressText = document.getElementById('sweep-progress-text');
     const sweepResultsEl = document.getElementById('sweep-results');
     const runSweepAnalysisBtn = document.getElementById('run-sweep-analysis-btn');
     const sweepAnalysisResults = document.getElementById('sweep-analysis-results');
@@ -790,6 +787,7 @@ document.addEventListener('DOMContentLoaded', function () {
             .then(r => r.json())
             .then(data => {
                 if (data.error) throw new Error(data.error);
+                currentSweepId = null;
                 startTimer();
                 pollJobStatus(data.job_id);
             })
@@ -825,9 +823,10 @@ document.addEventListener('DOMContentLoaded', function () {
         const formData = new FormData();
         formData.append('pdb', selectedFile);
         formData.append('config', JSON.stringify(config));
-        sweepProgress.classList.remove('hidden');
-        sweepProgressFill.style.width = '2%';
-        sweepProgressText.textContent = 'Queued...';
+        const fill = document.getElementById('progress-fill');
+        const text = document.getElementById('progress-text');
+        if (fill) fill.style.width = '2%';
+        if (text) text.textContent = 'Sweep queued...';
         fetch('/api/sweeps', { method: 'POST', body: formData })
             .then(r => r.json())
             .then(data => {
@@ -838,7 +837,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 pollSweepStatus(data.job_id);
             })
             .catch(err => {
-                sweepProgressText.textContent = 'Sweep submission failed: ' + err.message;
+                if (text) text.textContent = 'Sweep submission failed: ' + err.message;
                 resetRunButton();
             });
     }
@@ -933,32 +932,42 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function pollSweepStatus(jobId) {
+        const fill = document.getElementById('progress-fill');
+        const text = document.getElementById('progress-text');
+        const stepEl = document.getElementById('current-step');
         fetch('/api/sweeps/' + jobId)
             .then(r => r.json())
             .then(data => {
                 if (data.error) throw new Error(data.error);
                 const pct = data.progress_pct || 0;
-                sweepProgressFill.style.width = pct + '%';
-                sweepProgressText.textContent =
-                    `Sweep: ${data.completed || 0} / ${data.total || 0} sub-jobs done (${pct.toFixed(1)}%)`;
+                if (fill) fill.style.width = `${Math.min(100, pct)}%`;
+                if (text) {
+                    text.textContent =
+                        `Sweep: ${data.completed || 0} / ${data.total || 0} sub-jobs (${pct.toFixed(1)}%)`;
+                }
+                if (stepEl) stepEl.textContent = 'Mode: force sweep';
                 if (data.status === 'completed' || data.status === 'failed') {
                     stopTimer();
-                    sweepProgressText.textContent = data.status === 'completed'
-                        ? `Sweep complete: ${data.completed} / ${data.total} sub-jobs.`
-                        : `Sweep failed: ${data.error || 'see logs'}`;
+                    if (fill) fill.style.width = '100%';
+                    if (text) {
+                        text.textContent = data.status === 'completed'
+                            ? `Sweep complete: ${data.completed} / ${data.total} sub-jobs.`
+                            : `Sweep failed: ${data.error || 'see logs'}`;
+                    }
                     displaySweepResults(jobId, data);
                 } else {
                     setTimeout(() => pollSweepStatus(jobId), 1500);
                 }
             })
             .catch(err => {
-                sweepProgressText.textContent = 'Sweep status check failed: ' + err.message;
+                if (text) text.textContent = 'Sweep status check failed: ' + err.message;
                 resetRunButton();
             });
     }
 
     function displayResults(jobId) {
         currentJobId = jobId;
+        currentSweepId = null;
         const spinner = runBtn.querySelector('.spinner');
         if (spinner) spinner.classList.add('hidden');
         runBtn.querySelector('.btn-text').textContent = 'Run Complete';
@@ -978,7 +987,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function displaySweepResults(jobId, data) {
         currentJobId = jobId;
         sweepResultsEl.classList.remove('hidden');
-        analysisSection.classList.add('hidden');
+        analysisSection.classList.remove('hidden');
+        analysisResultsEl.innerHTML = '';
+        const sweepOk = data.status === 'completed';
+        analysisStatusEl.textContent = sweepOk
+            ? '“Run Analysis” runs the checklist on every completed sweep sub-run (one block per force/replica); results are not averaged across forces. For sweep-wide rollups, use “Compute Epitope Candidates”.'
+            : '';
         const spinner = runBtn.querySelector('.spinner');
         if (spinner) spinner.classList.add('hidden');
         runBtn.querySelector('.btn-text').textContent = 'Sweep Complete';
@@ -1069,10 +1083,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function renderAnalysisResults(target, results) {
         target.innerHTML = '';
-        if (results.multi_replica && results.replicas && results.aggregate) {
+        if (results.multi_replica && results.replicas) {
+            const isForceSweep = results.ensemble_kind === 'force_sweep';
             const intro = document.createElement('p');
             intro.className = 'param-description';
-            if (results.ensemble_kind === 'replica_exchange') {
+            if (isForceSweep) {
+                intro.textContent = 'Force sweep: each block is one completed sub-run (folder name encodes force and replica). The same analyses are run independently on each trajectory; nothing is averaged across forces.';
+            } else if (results.ensemble_kind === 'replica_exchange') {
                 intro.textContent = 'Replica-exchange trajectories (one file per temperature replica in the ladder). Each block below is one replica trajectory; the last section summarizes arithmetic means of numeric stats across replicas (plots are not averaged).';
             } else {
                 intro.textContent = 'Multiple independent replica trajectories: each block below is one replica; the last section averages numeric summary statistics across replicas (plots are not averaged).';
@@ -1085,7 +1102,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 block.className = 'analysis-replica-block';
                 const h = document.createElement('h3');
                 h.className = 'subsection-title';
-                h.textContent = `Replica: ${label}`;
+                h.textContent = isForceSweep ? `Sub-run: ${label}` : `Replica: ${label}`;
                 block.appendChild(h);
                 const inner = document.createElement('div');
                 inner.className = 'analysis-replica-inner';
@@ -1093,11 +1110,15 @@ document.addEventListener('DOMContentLoaded', function () {
                 block.appendChild(inner);
                 target.appendChild(block);
             }
-            const hAgg = document.createElement('h3');
-            hAgg.className = 'subsection-title';
-            hAgg.textContent = 'Ensemble mean (scalar stats only)';
-            target.appendChild(hAgg);
-            renderAnalysisResults(target, results.aggregate || {});
+            const agg = results.aggregate;
+            const hasAgg = agg && typeof agg === 'object' && Object.keys(agg).length > 0;
+            if (hasAgg) {
+                const hAgg = document.createElement('h3');
+                hAgg.className = 'subsection-title';
+                hAgg.textContent = 'Ensemble mean (scalar stats only)';
+                target.appendChild(hAgg);
+                renderAnalysisResults(target, agg);
+            }
             return;
         }
 
