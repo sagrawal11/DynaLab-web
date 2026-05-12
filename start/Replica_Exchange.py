@@ -113,11 +113,19 @@ print(cmd)
 sp.check_output(cmd.split())
 
 # ----------------------------------------------------------------------
-# Configure (same base physics as Single_Replica.py; no membrane kwargs)
+# Configure (same base physics as Single_Replica.py; membrane from web config when enabled)
 # ----------------------------------------------------------------------
 param_dir_base = os.path.expanduser(upside_path + "/parameters/")
 param_dir_common = param_dir_base + "common/"
 param_dir_ff = param_dir_base + "{}/".format(ff)
+
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+if _script_dir not in sys.path:
+    sys.path.insert(0, _script_dir)
+import web_membrane as _wm  # noqa: E402
+
+_job_cfg = _wm.find_dynalab_config(pdb_dir)
+_rc_flags = _wm.upside_recentering_flags(_job_cfg)
 
 fasta = "{}/{}.fasta".format(input_dir, pdb_id)
 kwargs = dict(
@@ -131,6 +139,11 @@ kwargs = dict(
     environment_potential=param_dir_ff + "environment.h5",
     bb_environment_potential=param_dir_ff + "bb_env.dat",
     chain_break_from_file="{}/{}.chain_breaks".format(input_dir, pdb_id),
+)
+kwargs.update(
+    _wm.membrane_kwargs_for_upside(
+        _job_cfg, param_dir_ff=param_dir_ff, legacy_pulling_default=False,
+    )
 )
 if is_native:
     kwargs["initial_structure"] = "{}/{}.initial.npy".format(input_dir, pdb_id)
@@ -156,7 +169,7 @@ upside_opts = (
     "--frame-interval {} "
     "--temperature {} "
     "--seed {} "
-    "--disable-recentering "
+    "{}"
     "--record-momentum "
 )
 
@@ -170,6 +183,7 @@ upside_opts = upside_opts.format(
     frame_interval,
     tempers_str,
     randomseed,
+    _rc_flags,
     replica_interval,
     swap_sets[0],
     swap_sets[1],

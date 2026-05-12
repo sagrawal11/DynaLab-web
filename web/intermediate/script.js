@@ -175,6 +175,9 @@ document.addEventListener('DOMContentLoaded', function () {
     let currentSweepId = null;
     let lastWetlabFilename = null;
     let currentConfig = {};
+    /** While a job is polling, config summary shows this snapshot (submitted settings). */
+    let configSummaryFrozen = false;
+    let frozenConfigSummaryText = '';
 
     const modeDescriptions = {
         constant: 'Standard molecular dynamics at constant temperature.',
@@ -235,10 +238,20 @@ document.addEventListener('DOMContentLoaded', function () {
             updateConfigSummary();
         });
 
+        function setMembraneControlsInteractive(on) {
+            [membraneCoordSystem, membraneInner, membraneOuter, disableRecentering, disableZRecentering].forEach((el) => {
+                if (!el) return;
+                el.disabled = !on;
+                el.setAttribute('aria-disabled', on ? 'false' : 'true');
+            });
+        }
+
         enableMembrane.addEventListener('change', () => {
             toggleCardContent(membraneContent, enableMembrane.checked);
+            setMembraneControlsInteractive(enableMembrane.checked);
             updateConfigSummary();
         });
+        setMembraneControlsInteractive(enableMembrane.checked);
         enableRestraints.addEventListener('change', () => {
             toggleCardContent(restraintsContent, enableRestraints.checked);
             updateConfigSummary();
@@ -537,23 +550,16 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    function updateConfigSummary() {
-        currentConfig = {
-            userName:    userName.value || 'Not specified',
-            userEmail:   userEmail.value || 'Not specified',
-            simMode:     simMode.value,
-            duration:    parseInt(duration.value, 10),
-            frameInterval: parseInt(frameInterval.value, 10),
-            temperature: parseFloat(temperature.value),
-            enablePulling: enablePulling.checked,
-            pullingMode: pullingMode ? pullingMode.value : 'velocity',
-            enableSweep: enableSweep ? enableSweep.checked : false,
-        };
-        let summary = `Contact: ${currentConfig.userName} (${currentConfig.userEmail})\n` +
+    function buildConfigSummaryText() {
+        const durationVal = parseInt(duration.value, 10);
+        const frameVal = parseInt(frameInterval.value, 10);
+        const tempVal = parseFloat(temperature.value);
+        const sweepOn = enableSweep ? enableSweep.checked : false;
+        let summary = `Contact: ${userName.value || 'Not specified'} (${userEmail.value || 'Not specified'})\n` +
             `Sim mode: ${simMode.options[simMode.selectedIndex].text}\n` +
-            `Duration: ${currentConfig.duration} steps (~${(currentConfig.duration * 0.05).toFixed(1)} ns)\n` +
-            `Frame Interval: ${currentConfig.frameInterval} steps\n` +
-            `Temperature: ${currentConfig.temperature}\n` +
+            `Duration: ${durationVal} steps (~${(durationVal * 0.05).toFixed(1)} ns)\n` +
+            `Frame Interval: ${frameVal} steps\n` +
+            `Temperature: ${tempVal}\n` +
             `Force field: ff_2.1`;
         if (simMode && simMode.value === 'constant') {
             const ir = document.getElementById('basic-independent-replicas');
@@ -562,10 +568,10 @@ document.addEventListener('DOMContentLoaded', function () {
         } else if (simMode && simMode.value === 'replica') {
             summary += `\nReplica exchange: ${nReplicas.value} replicas, T_low=${tempLow.value}, T_high=${tempHigh.value}, interval=${replicaInterval.value}`;
         }
-        if (currentConfig.enableSweep) {
+        if (sweepOn) {
             summary += `\nForce sweep: enabled (${(sweepForces.value || '').split(',').filter(x => x.trim()).length} forces, ${sweepReplicas.value} replicas)`;
-        } else if (currentConfig.enablePulling) {
-            summary += `\nPulling: enabled (${currentConfig.pullingMode})`;
+        } else if (enablePulling.checked) {
+            summary += `\nPulling: enabled (${pullingMode ? pullingMode.value : 'velocity'})`;
         }
         const er = document.getElementById('enable-restraints');
         const edl = document.getElementById('enable-distance-locks');
@@ -581,7 +587,49 @@ document.addEventListener('DOMContentLoaded', function () {
         if (er && er.checked && esp && esp.checked && springPairText && springPairText.value.trim()) {
             summary += '\nPair spring (manual table): enabled';
         }
-        configSummary.textContent = summary;
+        if (enableMembrane && enableMembrane.checked) {
+            const mi = parseFloat(membraneInner.value);
+            const mo = parseFloat(membraneOuter.value);
+            const th = (Number.isFinite(mi) && Number.isFinite(mo)) ? (mo - mi) : NaN;
+            summary += `\nMembrane: on (${membraneCoordSystem.value}), inner=${mi} Å, outer=${mo} Å`;
+            if (Number.isFinite(th)) summary += ` → thickness ${th.toFixed(1)} Å`;
+            if (disableRecentering && disableRecentering.checked) summary += ', disable recentering';
+            if (disableZRecentering && disableZRecentering.checked) summary += ', disable z-recentering';
+        } else {
+            summary += '\nMembrane: off';
+        }
+        return summary;
+    }
+
+    function freezeConfigSummaryForRun() {
+        frozenConfigSummaryText = buildConfigSummaryText();
+        configSummaryFrozen = true;
+        if (configSummary) configSummary.textContent = frozenConfigSummaryText;
+    }
+
+    function unfreezeConfigSummary() {
+        configSummaryFrozen = false;
+        frozenConfigSummaryText = '';
+        updateConfigSummary();
+    }
+
+    function updateConfigSummary() {
+        if (configSummaryFrozen) {
+            if (configSummary) configSummary.textContent = frozenConfigSummaryText;
+            return;
+        }
+        currentConfig = {
+            userName:    userName.value || 'Not specified',
+            userEmail:   userEmail.value || 'Not specified',
+            simMode:     simMode.value,
+            duration:    parseInt(duration.value, 10),
+            frameInterval: parseInt(frameInterval.value, 10),
+            temperature: parseFloat(temperature.value),
+            enablePulling: enablePulling.checked,
+            pullingMode: pullingMode ? pullingMode.value : 'velocity',
+            enableSweep: enableSweep ? enableSweep.checked : false,
+        };
+        if (configSummary) configSummary.textContent = buildConfigSummaryText();
     }
 
     function updateRunButton() {
@@ -642,6 +690,21 @@ document.addEventListener('DOMContentLoaded', function () {
                 return 'Cannot combine distance-lock pairs with manual pair spring text (same backend table). Disable one.';
             }
         }
+        if (enableMembrane && enableMembrane.checked) {
+            const mi = parseFloat(membraneInner.value);
+            const mo = parseFloat(membraneOuter.value);
+            if (!Number.isFinite(mi) || !Number.isFinite(mo)) {
+                return 'Membrane boundaries must be numbers.';
+            }
+            if (mo <= mi) {
+                return 'Membrane outer boundary (Å) must be greater than the inner boundary.';
+            }
+            const th = mo - mi;
+            if (th < 4 || th > 120) {
+                return 'Implied membrane thickness (outer − inner) must be between 4 and 120 Å.';
+            }
+        }
+
         if (locksOn) {
             const locks = readDistanceLockEntries();
             const seen = new Set();
@@ -664,7 +727,23 @@ document.addEventListener('DOMContentLoaded', function () {
         if (enablePulling && enablePulling.checked) {
             return 'Cannot run a force sweep together with single-job pulling. Disable pulling or turn off the sweep.';
         }
-        return null;
+        return validateSingleInputs();
+    }
+
+    function appendMembraneConfig(config) {
+        const em = document.getElementById('enable-membrane');
+        config.membraneEnabled = !!(em && em.checked);
+        if (!config.membraneEnabled) return;
+        const mi = parseFloat(membraneInner && membraneInner.value);
+        const mo = parseFloat(membraneOuter && membraneOuter.value);
+        config.membraneInnerAngstrom = Number.isFinite(mi) ? mi : -16;
+        config.membraneOuterAngstrom = Number.isFinite(mo) ? mo : 16;
+        if (config.membraneOuterAngstrom <= config.membraneInnerAngstrom) {
+            config.membraneOuterAngstrom = config.membraneInnerAngstrom + 4;
+        }
+        config.membraneCoordSystem = (membraneCoordSystem && membraneCoordSystem.value) || 'cartesian';
+        config.membraneDisableRecentering = !!(disableRecentering && disableRecentering.checked);
+        config.membraneDisableZRecentering = !!(disableZRecentering && disableZRecentering.checked);
     }
 
     // -------------------------------------------------------------------
@@ -779,6 +858,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (Number.isNaN(n)) n = 1;
             config.basicIndependentReplicas = Math.min(32, Math.max(1, n));
         }
+        appendMembraneConfig(config);
         const formData = new FormData();
         formData.append('pdb', selectedFile);
         formData.append('config', JSON.stringify(config));
@@ -788,6 +868,7 @@ document.addEventListener('DOMContentLoaded', function () {
             .then(data => {
                 if (data.error) throw new Error(data.error);
                 currentSweepId = null;
+                freezeConfigSummaryForRun();
                 startTimer();
                 pollJobStatus(data.job_id);
             })
@@ -820,6 +901,7 @@ document.addEventListener('DOMContentLoaded', function () {
             anchorResidue: parseInt(sweepAnchor.value, 10) || 0,
             pullResidue: parseInt(sweepPuller.value, 10),
         };
+        appendMembraneConfig(config);
         const formData = new FormData();
         formData.append('pdb', selectedFile);
         formData.append('config', JSON.stringify(config));
@@ -833,6 +915,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (data.error) throw new Error(data.error);
                 currentJobId = data.job_id;
                 currentSweepId = data.sweep_id;
+                freezeConfigSummaryForRun();
                 startTimer();
                 pollSweepStatus(data.job_id);
             })
@@ -966,6 +1049,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function displayResults(jobId) {
+        unfreezeConfigSummary();
         currentJobId = jobId;
         currentSweepId = null;
         const spinner = runBtn.querySelector('.spinner');
@@ -985,6 +1069,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function displaySweepResults(jobId, data) {
+        unfreezeConfigSummary();
         currentJobId = jobId;
         sweepResultsEl.classList.remove('hidden');
         analysisSection.classList.remove('hidden');
@@ -1000,6 +1085,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function resetRunButton() {
+        unfreezeConfigSummary();
         runBtn.disabled = false;
         const spinner = runBtn.querySelector('.spinner');
         if (spinner) spinner.classList.add('hidden');
@@ -1034,8 +1120,14 @@ document.addEventListener('DOMContentLoaded', function () {
             .then(r => r.json().then(data => ({ ok: r.ok, data })))
             .then(({ ok, data }) => {
                 if (!ok || data.error) throw new Error(data.error || 'Analysis failed');
-                renderAnalysisResults(analysisResultsEl, data.results || {});
-                analysisStatusEl.textContent = `Analysis complete (${Object.keys(data.results || {}).length} step(s)).`;
+                const res = data.results || {};
+                renderAnalysisResults(analysisResultsEl, res);
+                if (res.multi_replica && res.replicas) {
+                    const n = Object.keys(res.replicas).length;
+                    analysisStatusEl.textContent = `Analysis complete (${n} trajectory block(s)).`;
+                } else {
+                    analysisStatusEl.textContent = `Analysis complete (${Object.keys(res).length} step(s)).`;
+                }
                 refreshIntermediates();
                 backmapSection.classList.remove('hidden');
             })
@@ -1081,43 +1173,95 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     }
 
+    /**
+     * Human-readable title for a multi-trajectory row (force sweep folder or replica label).
+     */
+    function formatMultiReplicaDropdownTitle(label, ensembleKind) {
+        if (ensembleKind === 'force_sweep') {
+            const m = /^F_([\d.]+)pN_rep_(\d+)$/i.exec(label);
+            if (m) {
+                const pn = parseFloat(m[1]);
+                const repIdx = parseInt(m[2], 10);
+                const repHuman = repIdx + 1;
+                let pnStr;
+                if (Number.isFinite(pn)) {
+                    pnStr = Math.abs(pn % 1) < 1e-6 ? String(Math.round(pn)) : String(pn);
+                } else {
+                    pnStr = m[1];
+                }
+                return `${pnStr} pN · replica ${repHuman}`;
+            }
+        }
+        if (ensembleKind === 'replica_exchange') {
+            return `Temperature replica · ${label}`;
+        }
+        return `Replica · ${label}`;
+    }
+
     function renderAnalysisResults(target, results) {
         target.innerHTML = '';
         if (results.multi_replica && results.replicas) {
-            const isForceSweep = results.ensemble_kind === 'force_sweep';
+            const kind = results.ensemble_kind || 'independent';
+            const isForceSweep = kind === 'force_sweep';
             const intro = document.createElement('p');
             intro.className = 'param-description';
             if (isForceSweep) {
-                intro.textContent = 'Force sweep: each block is one completed sub-run (folder name encodes force and replica). The same analyses are run independently on each trajectory; nothing is averaged across forces.';
-            } else if (results.ensemble_kind === 'replica_exchange') {
-                intro.textContent = 'Replica-exchange trajectories (one file per temperature replica in the ladder). Each block below is one replica trajectory; the last section summarizes arithmetic means of numeric stats across replicas (plots are not averaged).';
+                intro.textContent = 'Force sweep: open a row for that force and replica. Per-trajectory plots are inside each row. Cross-replica means (when present) are under “All replicas”. Sweep-wide rollups (epitopes, etc.) use “Compute Epitope Candidates” on the sweep card.';
+            } else if (kind === 'replica_exchange') {
+                intro.textContent = 'Replica-exchange: one expandable row per temperature replica. “All replicas” holds arithmetic means of numeric stats across the ladder (plots are not averaged).';
             } else {
-                intro.textContent = 'Multiple independent replica trajectories: each block below is one replica; the last section averages numeric summary statistics across replicas (plots are not averaged).';
+                intro.textContent = 'Multiple replicas: one expandable row per trajectory. “All replicas” holds arithmetic means of numeric stats across replicas (plots are not averaged).';
             }
             target.appendChild(intro);
 
-            const labels = results.replica_labels || Object.keys(results.replicas).sort();
-            for (const label of labels) {
-                const block = document.createElement('div');
-                block.className = 'analysis-replica-block';
-                const h = document.createElement('h3');
-                h.className = 'subsection-title';
-                h.textContent = isForceSweep ? `Sub-run: ${label}` : `Replica: ${label}`;
-                block.appendChild(h);
-                const inner = document.createElement('div');
-                inner.className = 'analysis-replica-inner';
-                renderAnalysisResults(inner, results.replicas[label] || {});
-                block.appendChild(inner);
-                target.appendChild(block);
-            }
             const agg = results.aggregate;
             const hasAgg = agg && typeof agg === 'object' && Object.keys(agg).length > 0;
+
+            const labelsRaw = results.replica_labels || Object.keys(results.replicas);
+            const labels = kind === 'force_sweep'
+                ? [...labelsRaw].sort((a, b) => {
+                    const ma = /^F_([\d.]+)pN_rep_(\d+)$/i.exec(a);
+                    const mb = /^F_([\d.]+)pN_rep_(\d+)$/i.exec(b);
+                    if (ma && mb) {
+                        const fa = parseFloat(ma[1]);
+                        const fb = parseFloat(mb[1]);
+                        if (fa !== fb) return fa - fb;
+                        return parseInt(ma[2], 10) - parseInt(mb[2], 10);
+                    }
+                    return String(a).localeCompare(String(b));
+                })
+                : [...labelsRaw].sort();
+            for (const label of labels) {
+                const details = document.createElement('details');
+                details.className = 'analysis-replica-details';
+                const summary = document.createElement('summary');
+                summary.className = 'analysis-replica-summary';
+                const primary = formatMultiReplicaDropdownTitle(label, kind);
+                summary.textContent = `${primary} (${label})`;
+                details.appendChild(summary);
+                const body = document.createElement('div');
+                body.className = 'analysis-replica-details-body analysis-replica-inner';
+                renderAnalysisResults(body, results.replicas[label] || {});
+                details.appendChild(body);
+                target.appendChild(details);
+            }
+
             if (hasAgg) {
-                const hAgg = document.createElement('h3');
-                hAgg.className = 'subsection-title';
-                hAgg.textContent = 'Ensemble mean (scalar stats only)';
-                target.appendChild(hAgg);
-                renderAnalysisResults(target, agg);
+                const allDetails = document.createElement('details');
+                allDetails.className = 'analysis-replica-details analysis-all-replicas';
+                allDetails.open = true;
+                const allSum = document.createElement('summary');
+                allSum.className = 'analysis-replica-summary';
+                const allTitle = kind === 'force_sweep'
+                    ? 'All replicas — cross-run summary (scalar means only)'
+                    : 'All replicas — ensemble mean (scalar stats only)';
+                allSum.textContent = allTitle;
+                allDetails.appendChild(allSum);
+                const allBody = document.createElement('div');
+                allBody.className = 'analysis-replica-details-body analysis-replica-inner';
+                renderAnalysisResults(allBody, agg);
+                allDetails.appendChild(allBody);
+                target.appendChild(allDetails);
             }
             return;
         }

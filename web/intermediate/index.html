@@ -456,9 +456,11 @@
                 </div>
                 <div class="card-content" id="membrane-content">
                     <p class="param-description" style="margin-bottom: 0.75rem;">
-                        <strong>Web run:</strong> these controls are not sent to the Flask server yet.
-                        Constant-T MD uses no implicit membrane from this card; pulling scripts use a fixed default
-                        membrane thickness in Upside parameter space (see <code>web/server/README.md</code>).
+                        When <strong>Enable Membrane</strong> is on, these settings are saved in the job
+                        <code>config.json</code> and applied by <code>Single_Replica.py</code>,
+                        <code>Replica_Exchange.py</code>, <code>Pulling_Simulations.py</code>, and force sweeps
+                        (via the job config). Thickness is <code>outer − inner</code> (Å). Spherical uses Upside
+                        membrane curvature flags; coordinate the PDB orientation with your choice here.
                     </p>
                     <div class="config-grid">
                         <div class="config-group">
@@ -466,9 +468,9 @@
                                 <label for="membrane-coord-system">Coordinate system</label>
                                 <button type="button" class="help-btn" data-help="membrane_coord_system" aria-label="Help: membrane coordinates">?</button>
                             </div>
-                            <select id="membrane-coord-system" disabled aria-disabled="true">
+                            <select id="membrane-coord-system">
                                 <option value="cartesian">Cartesian (z-coordinate)</option>
-                                <option value="spherical">Spherical (h-coordinate)</option>
+                                <option value="spherical">Spherical (curvature-based)</option>
                             </select>
                             <p class="param-description">
                                 Choose coordinate system for membrane boundaries.
@@ -481,7 +483,7 @@
                                 <button type="button" class="help-btn" data-help="membrane_inner_bound" aria-label="Help: inner boundary">?</button>
                             </div>
                             <div class="slider-container">
-                                <input type="range" id="membrane-inner" min="-25" max="0" step="1" value="-16" disabled aria-disabled="true">
+                                <input type="range" id="membrane-inner" min="-25" max="0" step="1" value="-16">
                                 <span class="slider-value" id="inner-value">-16</span>
                             </div>
                             <p class="param-description">
@@ -495,7 +497,7 @@
                                 <button type="button" class="help-btn" data-help="membrane_outer_bound" aria-label="Help: outer boundary">?</button>
                             </div>
                             <div class="slider-container">
-                                <input type="range" id="membrane-outer" min="0" max="25" step="1" value="16" disabled aria-disabled="true">
+                                <input type="range" id="membrane-outer" min="0" max="25" step="1" value="16">
                                 <span class="slider-value" id="outer-value">16</span>
                             </div>
                             <p class="param-description">
@@ -510,11 +512,11 @@
                             </div>
                             <div class="checkbox-group">
                                 <label class="checkbox-label">
-                                    <input type="checkbox" id="disable-recentering" disabled aria-disabled="true">
+                                    <input type="checkbox" id="disable-recentering">
                                     <span>Disable recentering</span>
                                 </label>
                                 <label class="checkbox-label">
-                                    <input type="checkbox" id="disable-z-recentering" disabled aria-disabled="true">
+                                    <input type="checkbox" id="disable-z-recentering">
                                     <span>Disable Z-recentering</span>
                                 </label>
                             </div>

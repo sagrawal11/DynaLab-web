@@ -54,7 +54,7 @@ For plain MD, `basicIndependentReplicas` (1–32, default 1) is passed as a 10th
 
 **Restraints:** `distanceLockPairs` and optional `restraintGroupRigidSpring` (default `true`: server uses a high `pair_spring` constant for near-rigid pairs); manual pair-spring text can still be used. These produce `spring-pair-xyz.dat` in the job directory; the server passes that filename to the start scripts as ``pair_spring``. Other restraint types in the UI (walls, nails, fixed springs) are not yet wired through this backend.
 
-Membrane sliders in the UI are not applied to web jobs. Constant-T `Single_Replica.py` runs use no implicit membrane from that card. `Pulling_Simulations.py` uses a fixed default membrane thickness in its Upside config (see `start/Pulling_Simulations.py`).
+Membrane settings from the UI are stored in each job’s ``config.json``. When ``membraneEnabled`` is true, ``start/web_membrane.py`` supplies ``membrane_potential`` / ``membrane_thickness`` (thickness = outer − inner in Å) and optional curvature flags for ``membraneCoordSystem: "spherical"`` to ``Single_Replica.py``, ``Replica_Exchange.py``, and ``Pulling_Simulations.py``. Sub-jobs in a force sweep resolve the parent job config by walking up the directory tree. When the card is off, constant-T and REMD omit the implicit membrane; non-web ``Pulling_Simulations.py`` runs without a ``config.json`` still use the historical default (membrane on, thickness 31.8). Recentering: with the card off, simulations keep ``--disable-recentering`` as before; with the card on, the two “Disable … recentering” checkboxes map to ``obj/upside`` flags.
 
 ## Post-processing analyses
 

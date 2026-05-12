@@ -358,11 +358,30 @@ def _parse_pair_spring_text_residue_pairs(raw: str) -> list[tuple[int, int]]:
     return pairs
 
 
+def _validate_membrane_fields(config: dict) -> None:
+    """Reject impossible membrane slab settings from the web UI."""
+    if not config.get("membraneEnabled"):
+        return
+    try:
+        inner = float(config.get("membraneInnerAngstrom", -16))
+        outer = float(config.get("membraneOuterAngstrom", 16))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Membrane inner/outer boundaries must be numbers.") from exc
+    if outer <= inner:
+        raise ValueError("Membrane outer boundary (Å) must be greater than the inner boundary.")
+    thickness = outer - inner
+    if thickness < 4.0 or thickness > 120.0:
+        raise ValueError("Implied membrane thickness (outer − inner) must be between 4 and 120 Å.")
+    coord = str(config.get("membraneCoordSystem") or "cartesian").strip().lower()
+    if coord not in ("cartesian", "spherical"):
+        raise ValueError("membraneCoordSystem must be 'cartesian' or 'spherical'.")
+
+
 def _validate_single_job_config(job_dir: Path, config: dict) -> None:
     """Reject inconsistent configs before spawning Upside (also enforced in the UI)."""
     pdb_path = job_dir / "input.pdb"
 
-    locks = config.get("distanceLockPairs")
+    _validate_membrane_fields(config)
     if locks is not None and not isinstance(locks, list):
         raise ValueError("distanceLockPairs must be a list when provided.")
     locks = locks or []
@@ -1037,6 +1056,11 @@ def submit_sweep():
         config["forces_pn"] = [float(x) for x in forces]
     except (TypeError, ValueError):
         return jsonify({"error": "forces_pn must be numbers"}), 400
+
+    try:
+        _validate_membrane_fields(config)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
     job_id = uuid.uuid4().hex[:8]
     job_dir = JOBS_DIR / job_id

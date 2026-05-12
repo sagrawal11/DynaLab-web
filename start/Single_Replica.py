@@ -121,6 +121,14 @@ param_dir_base = os.path.expanduser(upside_path+"/parameters/")
 param_dir_common = param_dir_base + "common/"
 param_dir_ff = param_dir_base + '{}/'.format(ff)
 
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+if _script_dir not in sys.path:
+    sys.path.insert(0, _script_dir)
+import web_membrane as _wm  # noqa: E402
+
+_job_cfg = _wm.find_dynalab_config(pdb_dir)
+_rc_flags = _wm.upside_recentering_flags(_job_cfg)
+
 # options
 print ("Configuring...")
 fasta = "{}/{}.fasta".format(input_dir, pdb_id)
@@ -136,6 +144,11 @@ kwargs = dict(
                bb_environment_potential  = param_dir_ff + "bb_env.dat",
                chain_break_from_file     = "{}/{}.chain_breaks".format(input_dir, pdb_id),
             )
+kwargs.update(
+    _wm.membrane_kwargs_for_upside(
+        _job_cfg, param_dir_ff=param_dir_ff, legacy_pulling_default=False,
+    )
+)
 
 if is_native:
     kwargs['initial_structure'] =  "{}/{}.initial.npy".format(input_dir, pdb_id)
@@ -166,7 +179,7 @@ upside_opts_tmpl = (
                  "--frame-interval {} "
                  "--temperature {} "
                  "--seed {} "
-                 "--disable-recentering "
+                 "{}"
                  "--record-momentum "
                  "{}"
               )
@@ -193,7 +206,7 @@ def _run_upside_subprocess(j_index: int, randomseed: int) -> None:
     """Launch one Upside integration (assumes ``h5_j`` already prepared for this replica)."""
     _, _run_j, h5_j, log_j = replica_paths(j_index)
     upside_opts = upside_opts_tmpl.format(
-        duration, frame_interval, T, randomseed, restart_str
+        duration, frame_interval, T, randomseed, _rc_flags, restart_str
     )
     print("Running replica {} / {} ...".format(j_index + 1, n_rep))
     cmd = "{}/obj/upside {} {} | tee {}".format(upside_path, upside_opts, h5_j, log_j)
@@ -206,7 +219,7 @@ if is_continue:
         _, run_j, h5_j, log_j = replica_paths(j)
         randomseed = np.random.randint(0, 100000)
         upside_opts = upside_opts_tmpl.format(
-            duration, frame_interval, T, randomseed, restart_str
+            duration, frame_interval, T, randomseed, _rc_flags, restart_str
         )
 
         if j > 0:
@@ -259,7 +272,7 @@ elif n_rep <= 1:
     _, run_j, h5_j, log_j = replica_paths(j)
     randomseed = np.random.randint(0, 100000)
     upside_opts = upside_opts_tmpl.format(
-        duration, frame_interval, T, randomseed, restart_str
+        duration, frame_interval, T, randomseed, _rc_flags, restart_str
     )
     shutil.copyfile(config_base, h5_j)
     print("Running replica {} / {} ...".format(j + 1, n_rep))

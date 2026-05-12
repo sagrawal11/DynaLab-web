@@ -1213,6 +1213,61 @@ input:where([type="text"], [type="email"], [type="number"], [type="password"], [
     margin-top: 0.75rem;
 }
 
+.analysis-replica-details {
+    margin-bottom: 0.65rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+}
+
+.analysis-replica-details[open] {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.analysis-replica-summary {
+    cursor: pointer;
+    padding: 0.65rem 1rem;
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #2d3748;
+    background: #f7fafc;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    user-select: none;
+}
+
+.analysis-replica-summary::-webkit-details-marker {
+    display: none;
+}
+
+.analysis-replica-summary::before {
+    content: '▸';
+    font-size: 0.75rem;
+    color: #718096;
+    transition: transform 0.15s ease;
+}
+
+.analysis-replica-details[open] > .analysis-replica-summary::before {
+    transform: rotate(90deg);
+}
+
+.analysis-replica-details-body {
+    padding: 1rem 1rem 1.25rem;
+    border-top: 1px solid #edf2f7;
+}
+
+.analysis-replica-details-body .analysis-replica-inner {
+    margin-top: 0;
+}
+
+.analysis-all-replicas > .analysis-replica-summary {
+    background: #edf2f7;
+    color: #1a202c;
+}
+
 #analysis-status {
     margin-top: 0.75rem;
     min-height: 1.2em;
