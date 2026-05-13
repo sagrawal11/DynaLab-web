@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const resultsSection = document.getElementById('results-section');
     const analysisSection = document.getElementById('analysis-section');
     const runAnalysisBtn = document.getElementById('run-analysis-btn');
+    const downloadAllAnalysisBtn = document.getElementById('download-all-analysis-btn');
     const analysisStatusEl = document.getElementById('analysis-status');
     const analysisResultsEl = document.getElementById('analysis-results');
     const modeDescription = document.getElementById('mode-description');
@@ -209,6 +210,7 @@ document.addEventListener('DOMContentLoaded', function () {
             modeDescription.textContent = modeDescriptions[simMode.value];
             updateCardVisibility();
             updateConfigSummary();
+            updateRunButton();
         });
 
         [duration, frameInterval, temperature, nReplicas, tempLow, tempHigh,
@@ -221,12 +223,33 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const basicIr = document.getElementById('basic-independent-replicas');
         if (basicIr) {
-            ['input', 'change'].forEach(ev => basicIr.addEventListener(ev, updateConfigSummary));
+            ['input', 'change'].forEach(ev => basicIr.addEventListener(ev, () => {
+                updateConfigSummary();
+                updateRunButton();
+            }));
         }
 
         membraneCoordSystem.addEventListener('change', updateConfigSummary);
 
         enablePulling.addEventListener('change', () => {
+            if (enablePulling.checked && enableSweep && enableSweep.checked) {
+                enablePulling.checked = false;
+                showSimulationRuleFeedback(
+                    'Cannot turn on single-job pulling while the force sweep is enabled. Turn off force sweep in card 4b first.',
+                );
+                syncSweepPullingExclusivity();
+                updateConfigSummary();
+                return;
+            }
+            if (simMode && simMode.value === 'replica' && enablePulling.checked) {
+                enablePulling.checked = false;
+                showSimulationRuleFeedback(
+                    'Replica exchange cannot be combined with pulling. Use constant temperature for pulling.',
+                );
+                syncSweepPullingExclusivity();
+                updateConfigSummary();
+                return;
+            }
             toggleCardContent(pullingContent, enablePulling.checked);
             syncSweepPullingExclusivity();
             updateConfigSummary();
@@ -307,10 +330,42 @@ document.addEventListener('DOMContentLoaded', function () {
         setupRemoveHandlers();
 
         runBtn.addEventListener('click', runSimulationOrSweep);
+        const runIncompatOverlay = document.getElementById('run-btn-incompat-overlay');
+        if (runIncompatOverlay) {
+            runIncompatOverlay.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const err = getSimulationCompatibilityError();
+                if (!err) return;
+                showSimulationRuleFeedback(err);
+                const pt = document.getElementById('progress-text');
+                if (pt) pt.textContent = err;
+            });
+        }
 
         // Sweep
         if (enableSweep) {
             enableSweep.addEventListener('change', () => {
+                if (enableSweep.checked && enablePulling && enablePulling.checked) {
+                    enableSweep.checked = false;
+                    showSimulationRuleFeedback(
+                        'Cannot enable the force sweep while single-job pulling is on. Turn off pulling in card 4 first—each sweep sub-job already runs its own pulling protocol.',
+                    );
+                    toggleCardContent(sweepContent, false);
+                    syncSweepPullingExclusivity();
+                    updateConfigSummary();
+                    return;
+                }
+                if (enableSweep.checked && simMode && simMode.value === 'replica') {
+                    enableSweep.checked = false;
+                    showSimulationRuleFeedback(
+                        'Force sweep is only available in constant-temperature mode. Switch simulation mode away from replica exchange.',
+                    );
+                    toggleCardContent(sweepContent, false);
+                    syncSweepPullingExclusivity();
+                    updateConfigSummary();
+                    return;
+                }
                 toggleCardContent(sweepContent, enableSweep.checked);
                 syncSweepPullingExclusivity();
                 updateConfigSummary();
@@ -321,6 +376,12 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         if (runAnalysisBtn) runAnalysisBtn.addEventListener('click', runAnalysis);
+        if (downloadAllAnalysisBtn) {
+            downloadAllAnalysisBtn.addEventListener('click', () => {
+                if (!currentJobId) return;
+                window.location.assign(`/api/jobs/${currentJobId}/analysis/download-all`);
+            });
+        }
         const pcaInput = document.getElementById('pca-n-components');
         if (pcaInput) {
             ['click', 'mousedown', 'keydown'].forEach(ev => {
@@ -345,6 +406,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (settingsSaveBtn) settingsSaveBtn.addEventListener('click', saveSettings);
 
         syncSweepPullingExclusivity();
+        updateRunButton();
     }
 
     // -------------------------------------------------------------------
@@ -377,42 +439,110 @@ document.addEventListener('DOMContentLoaded', function () {
         set('outer-value', membraneOuter.value);
     }
 
+    let simulationRulesFeedbackTimer = null;
+
+    function showSimulationRuleFeedback(message) {
+        const el = document.getElementById('simulation-rules-feedback');
+        if (!el || !message) return;
+        el.textContent = message;
+        if (simulationRulesFeedbackTimer) clearTimeout(simulationRulesFeedbackTimer);
+        simulationRulesFeedbackTimer = setTimeout(() => {
+            el.textContent = '';
+            simulationRulesFeedbackTimer = null;
+        }, 14000);
+    }
+
+    function setCardToggleTitle(toggleInput, title) {
+        const lab = toggleInput && toggleInput.closest('label');
+        if (!lab) return;
+        if (title) lab.setAttribute('title', title);
+        else lab.removeAttribute('title');
+    }
+
+    function refreshSimulationRulesPanel() {
+        const cur = document.getElementById('simulation-rules-current');
+        if (!cur) return;
+        const isRep = simMode && simMode.value === 'replica';
+        const sweepOn = enableSweep && enableSweep.checked;
+        const pullOn = enablePulling && enablePulling.checked;
+        if (isRep) {
+            cur.textContent = 'Active selection summary: replica exchange — no pulling or force sweep.';
+        } else if (sweepOn) {
+            cur.textContent = 'Active selection summary: force sweep — multi-force pulling; single-job pulling is off.';
+        } else if (pullOn) {
+            cur.textContent = 'Active selection summary: single-job pulling — force sweep is off.';
+        } else {
+            cur.textContent = 'Active selection summary: constant temperature — choose pulling, force sweep, neither, plus optional membrane and restraints.';
+        }
+    }
+
     function syncSweepPullingExclusivity() {
         if (!enableSweep || !enablePulling) return;
         const isRep = simMode && simMode.value === 'replica';
-        if (isRep) return;
+
+        if (isRep) {
+            enablePulling.disabled = true;
+            enableSweep.disabled = true;
+            setCardToggleTitle(enablePulling, 'Replica exchange does not support pulling or the multi-force sweep. Switch to constant temperature to use those.');
+            setCardToggleTitle(enableSweep, 'Replica exchange does not support pulling or the multi-force sweep. Switch to constant temperature to use those.');
+            toggleCardContent(pullingContent, false);
+            toggleCardContent(sweepContent, false);
+            refreshSimulationRulesPanel();
+            updateRunButton();
+            return;
+        }
+
         if (enableSweep.checked) {
             enableSweep.disabled = false;
             enablePulling.disabled = true;
-            if (enablePulling.checked) {
-                enablePulling.checked = false;
-                toggleCardContent(pullingContent, false);
-            }
+            setCardToggleTitle(enableSweep, '');
+            setCardToggleTitle(
+                enablePulling,
+                'Force sweep is on: each sub-job already runs pulling at a different force. Turn off the force sweep to configure single-job pulling instead.',
+            );
         } else if (enablePulling.checked) {
-            enableSweep.disabled = true;
             enablePulling.disabled = false;
+            enableSweep.disabled = true;
+            setCardToggleTitle(enablePulling, '');
+            setCardToggleTitle(
+                enableSweep,
+                'Single-job pulling is on. Turn off pulling in card 4 before enabling the force sweep—they cannot be combined.',
+            );
         } else {
             enableSweep.disabled = false;
             enablePulling.disabled = false;
+            setCardToggleTitle(enablePulling, '');
+            setCardToggleTitle(enableSweep, '');
         }
+
+        toggleCardContent(pullingContent, enablePulling.checked);
+        toggleCardContent(sweepContent, enableSweep.checked);
+        refreshSimulationRulesPanel();
+        updateRunButton();
     }
 
     function updateCardVisibility() {
         const isReplica = simMode.value === 'replica';
+        const hadPull = enablePulling && enablePulling.checked;
+        const hadSweep = enableSweep && enableSweep.checked;
         constTempParams.classList.toggle('hidden', isReplica);
         replicaParams.classList.toggle('hidden', !isReplica);
         if (enablePulling) {
-            enablePulling.disabled = isReplica;
-            if (isReplica && enablePulling.checked) {
+            if (isReplica && hadPull) {
                 enablePulling.checked = false;
                 toggleCardContent(pullingContent, false);
+                showSimulationRuleFeedback(
+                    'Pulling was turned off: replica exchange does not support pulling in this workflow.',
+                );
             }
         }
         if (enableSweep) {
-            enableSweep.disabled = isReplica;
-            if (isReplica && enableSweep.checked) {
+            if (isReplica && hadSweep) {
                 enableSweep.checked = false;
                 if (sweepContent) toggleCardContent(sweepContent, false);
+                showSimulationRuleFeedback(
+                    'Force sweep was turned off: it is only available in constant-temperature mode.',
+                );
             }
         }
         syncSweepPullingExclusivity();
@@ -632,9 +762,60 @@ document.addEventListener('DOMContentLoaded', function () {
         if (configSummary) configSummary.textContent = buildConfigSummaryText();
     }
 
+    /**
+     * Returns a short "A and B are incompatible" message, or null if the current
+     * UI selection can be submitted.
+     */
+    function getSimulationCompatibilityError() {
+        const isRep = simMode && simMode.value === 'replica';
+        const sweepOn = enableSweep && enableSweep.checked;
+        const pullOn = enablePulling && enablePulling.checked;
+        if (sweepOn && pullOn) {
+            return 'Force sweep and single-job pulling are not compatible.';
+        }
+        if (isRep && pullOn) {
+            return 'Replica exchange and pulling are not compatible.';
+        }
+        if (isRep && sweepOn) {
+            return 'Replica exchange and force sweep are not compatible.';
+        }
+        if (sweepOn) {
+            const ir = document.getElementById('basic-independent-replicas');
+            if (ir) {
+                const n = parseInt(ir.value, 10);
+                if (!Number.isNaN(n) && n > 1) {
+                    return 'Force sweep and multiple independent replicas are not compatible.';
+                }
+            }
+        }
+        return null;
+    }
+
     function updateRunButton() {
         const hasReq = selectedFile && userName.value.trim() && userEmail.value.trim();
-        runBtn.disabled = !hasReq;
+        const stack = document.getElementById('run-button-stack');
+        const overlay = document.getElementById('run-btn-incompat-overlay');
+        const compat = getSimulationCompatibilityError();
+
+        if (!hasReq) {
+            runBtn.disabled = true;
+            if (stack) stack.classList.remove('has-incompat');
+            if (overlay) overlay.classList.add('hidden');
+            runBtn.removeAttribute('title');
+            return;
+        }
+
+        if (compat) {
+            runBtn.disabled = true;
+            runBtn.setAttribute('title', compat);
+            if (stack) stack.classList.add('has-incompat');
+            if (overlay) overlay.classList.remove('hidden');
+        } else {
+            runBtn.disabled = false;
+            runBtn.removeAttribute('title');
+            if (stack) stack.classList.remove('has-incompat');
+            if (overlay) overlay.classList.add('hidden');
+        }
     }
 
     function canonicalPairKey(a, b) {
@@ -649,6 +830,13 @@ document.addEventListener('DOMContentLoaded', function () {
         const fi = parseInt(frameInterval.value, 10);
         if (Number.isNaN(d) || d < 1) return 'Duration must be a positive integer.';
         if (Number.isNaN(fi) || fi < 1) return 'Frame interval must be a positive integer.';
+
+        if (simMode && simMode.value === 'replica' && enablePulling.checked) {
+            return 'Replica exchange cannot run with pulling enabled. Turn off pulling or switch to constant temperature.';
+        }
+        if (simMode && simMode.value === 'replica' && enableSweep && enableSweep.checked) {
+            return 'Replica exchange cannot run with force sweep. Turn off the sweep or switch to constant temperature.';
+        }
 
         if (enablePulling.checked) {
             const mode = pullingMode ? pullingMode.value : 'velocity';
@@ -725,7 +913,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function validateBeforeSweep() {
         if (enablePulling && enablePulling.checked) {
-            return 'Cannot run a force sweep together with single-job pulling. Disable pulling or turn off the sweep.';
+            return 'Cannot run a force sweep together with single-job pulling. Turn off pulling in card 4 first—each sweep sub-job already runs pulling at a different force.';
+        }
+        if (simMode && simMode.value === 'replica') {
+            return 'Force sweep is only available in constant-temperature mode. Switch simulation mode away from replica exchange.';
+        }
+        const ir = document.getElementById('basic-independent-replicas');
+        if (ir) {
+            const n = parseInt(ir.value, 10);
+            if (!Number.isNaN(n) && n > 1) {
+                return 'Force sweep uses its own “replicas per force” setting. Set independent replicas in card 3 to 1, or turn off the sweep.';
+            }
         }
         return validateSingleInputs();
     }
@@ -751,6 +949,13 @@ document.addEventListener('DOMContentLoaded', function () {
     // -------------------------------------------------------------------
     function runSimulationOrSweep() {
         if (!selectedFile || !userName.value.trim() || !userEmail.value.trim()) return;
+        const compatErr = getSimulationCompatibilityError();
+        if (compatErr) {
+            showSimulationRuleFeedback(compatErr);
+            const pt = document.getElementById('progress-text');
+            if (pt) pt.textContent = compatErr;
+            return;
+        }
         runBtn.disabled = true;
         const spinner = runBtn.querySelector('.spinner');
         if (spinner) spinner.classList.remove('hidden');
@@ -763,6 +968,7 @@ document.addEventListener('DOMContentLoaded', function () {
         designSection.classList.add('hidden');
         analysisResultsEl.innerHTML = '';
         analysisStatusEl.textContent = '';
+        if (downloadAllAnalysisBtn) downloadAllAnalysisBtn.disabled = true;
         const log = document.getElementById('log-output');
         if (log) log.textContent = '';
 
@@ -1059,6 +1265,7 @@ document.addEventListener('DOMContentLoaded', function () {
         analysisSection.classList.remove('hidden');
         analysisResultsEl.innerHTML = '';
         analysisStatusEl.textContent = '';
+        if (downloadAllAnalysisBtn) downloadAllAnalysisBtn.disabled = true;
         document.getElementById('traj-filename').textContent = `${jobId}.run.up`;
         document.getElementById('result-summary').textContent =
             `Job ID: ${jobId}\nTrajectory: ${jobId}.run.up\nDownload via the button below.`;
@@ -1075,6 +1282,7 @@ document.addEventListener('DOMContentLoaded', function () {
         analysisSection.classList.remove('hidden');
         analysisResultsEl.innerHTML = '';
         const sweepOk = data.status === 'completed';
+        if (downloadAllAnalysisBtn) downloadAllAnalysisBtn.disabled = true;
         analysisStatusEl.textContent = sweepOk
             ? '“Run Analysis” runs the checklist on every completed sweep sub-run (one block per force/replica); results are not averaged across forces. For sweep-wide rollups, use “Compute Epitope Candidates”.'
             : '';
@@ -1090,6 +1298,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const spinner = runBtn.querySelector('.spinner');
         if (spinner) spinner.classList.add('hidden');
         runBtn.querySelector('.btn-text').textContent = 'Run Simulation';
+        updateRunButton();
     }
 
     // -------------------------------------------------------------------
@@ -1111,6 +1320,7 @@ document.addEventListener('DOMContentLoaded', function () {
         runAnalysisBtn.querySelector('.btn-text').textContent = 'Analyzing...';
         analysisStatusEl.textContent = `Running ${selected.length} analysis step(s)...`;
         analysisResultsEl.innerHTML = '';
+        if (downloadAllAnalysisBtn) downloadAllAnalysisBtn.disabled = true;
 
         fetch(`/api/jobs/${currentJobId}/analyze`, {
             method: 'POST',
@@ -1130,6 +1340,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 refreshIntermediates();
                 backmapSection.classList.remove('hidden');
+                if (downloadAllAnalysisBtn) downloadAllAnalysisBtn.disabled = false;
             })
             .catch(err => { analysisStatusEl.textContent = 'Analysis failed: ' + err.message; })
             .finally(() => {

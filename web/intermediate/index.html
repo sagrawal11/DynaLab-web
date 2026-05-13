@@ -248,6 +248,18 @@
                             </div>
                         </div>
                     </div>
+
+                    <div id="simulation-compatibility-panel" class="simulation-compatibility-panel" aria-label="Simulation compatibility rules">
+                        <h3 class="subsection-title">What can be combined?</h3>
+                        <ul class="simulation-rules-list">
+                            <li><strong>Replica exchange</strong> — temperature ladder only. Pulling and force sweep are <em>not</em> supported (not wired in this workflow). Membrane and pair restraints are OK.</li>
+                            <li><strong>Constant temperature</strong> — You may use membrane, restraints, and either <strong>single-job pulling</strong> <em>or</em> <strong>force sweep</strong>, but not both (each defines how the system is pulled).</li>
+                            <li><strong>Membrane</strong> — Compatible with constant-T, replica exchange, single-job pulling, and force sweeps (same slab settings apply to each sub-job).</li>
+                            <li><strong>Independent replicas</strong> (card 3) — Only for constant-T single runs, not with force sweep (a sweep job uses its own replica count per force).</li>
+                        </ul>
+                        <p id="simulation-rules-current" class="simulation-rules-current"></p>
+                        <p id="simulation-rules-feedback" class="simulation-rules-feedback" role="status" aria-live="polite"></p>
+                    </div>
                 </div>
             </div>
 
@@ -437,7 +449,7 @@
                             <span class="btn-text">Compute Epitope Candidates</span>
                             <div class="spinner hidden"></div>
                         </button>
-                        <div id="sweep-analysis-results" class="analysis-results"></div>
+                        <div id="sweep-analysis-results" class="analysis-results analysis-results--stacked"></div>
                     </div>
                 </div>
             </div>
@@ -685,10 +697,13 @@
                             <!-- Dynamic content -->
                         </div>
                     </div>
-                    <button id="run-btn" class="run-button" disabled>
-                        <span class="btn-text">Run Simulation</span>
-                        <div class="spinner hidden"></div>
-                    </button>
+                    <div class="run-button-stack" id="run-button-stack">
+                        <button id="run-btn" type="button" class="run-button" disabled>
+                            <span class="btn-text">Run Simulation</span>
+                            <div class="spinner hidden"></div>
+                        </button>
+                        <div id="run-btn-incompat-overlay" class="run-btn-incompat-overlay hidden" role="presentation" aria-hidden="true"></div>
+                    </div>
                     <div id="progress-section" class="progress-section progress-section--in-run-card hidden">
                         <div class="section-heading">
                             <h2>Run status</h2>
@@ -855,12 +870,17 @@
                         <button type="button" class="help-btn help-btn--inline" data-help="analysis_cluster" aria-label="Help: clustering">?</button>
                     </div>
                 </div>
-                <button id="run-analysis-btn" class="run-button">
-                    <span class="btn-text">Run Analysis</span>
-                    <div class="spinner hidden"></div>
-                </button>
+                <div class="analysis-actions">
+                    <button id="run-analysis-btn" type="button" class="run-button">
+                        <span class="btn-text">Run Analysis</span>
+                        <div class="spinner hidden"></div>
+                    </button>
+                    <button id="download-all-analysis-btn" type="button" class="run-button run-button--secondary" disabled>
+                        <span class="btn-text">Download all (ZIP)</span>
+                    </button>
+                </div>
                 <div id="analysis-status" class="param-description"></div>
-                <div id="analysis-results" class="analysis-results"></div>
+                <div id="analysis-results" class="analysis-results analysis-results--stacked"></div>
             </div>
 
             <!-- Phase 2: Back-mapping -->

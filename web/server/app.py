@@ -602,6 +602,25 @@ def _collect_sweep_trajectories_for_analysis(
     return out
 
 
+def _sweep_subdir_label_from_traj(traj: Path, job_dir: Path) -> str | None:
+    """Return manifest ``sub_dir`` (e.g. ``F_22.0pN_rep_0``) for paths under ``job_dir/sweeps``.
+
+    Prefer this over ``Path.parents`` indexing so labels stay correct regardless of
+    whether the job also has ``outputs/sim/sim.run.up`` at the root (which would
+    otherwise make ``analyze_job`` pick ``basic_paths`` and label every sweep
+    trajectory's parent as ``sim``).
+    """
+    try:
+        rel = traj.resolve().relative_to(job_dir.resolve())
+    except (ValueError, OSError):
+        return None
+    parts = rel.parts
+    # sweeps/<sweep_id>/<sub_dir>/.../sim.run.up
+    if len(parts) >= 4 and parts[0] == "sweeps":
+        return parts[2]
+    return None
+
+
 def _mean_numeric_stats_across_replicas(stats_list: list[dict]) -> dict:
     """Average scalar stats across replicas; skip booleans and ambiguous integer indices."""
     if not stats_list:
@@ -1062,6 +1081,24 @@ def submit_sweep():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
+    if bool(config.get("enablePulling")):
+        return jsonify(
+            {"error": "Force sweep cannot be combined with single-job pulling in one job."}
+        ), 400
+    try:
+        bir = int(float(config.get("basicIndependentReplicas", 1)))
+    except (TypeError, ValueError):
+        bir = 1
+    if bir > 1:
+        return jsonify(
+            {
+                "error": (
+                    "Force sweep uses n_replicas per force only. "
+                    "Do not set basicIndependentReplicas > 1 for a sweep job."
+                ),
+            }
+        ), 400
+
     job_id = uuid.uuid4().hex[:8]
     job_dir = JOBS_DIR / job_id
     _init_job_layout(job_dir)
@@ -1143,6 +1180,14 @@ def get_calibration():
 # ---------------------------------------------------------------------------
 
 def _resolve_traj_for_job(job_dir: Path) -> Path | None:
+    try:
+        status = _read_status(job_dir)
+    except Exception:
+        status = {}
+    if status.get("sweep_id"):
+        sweep_first = _collect_sweep_trajectories_for_analysis(job_dir, None)
+        if sweep_first:
+            return sweep_first[0]
     paths = _collect_basic_trajectories(job_dir)
     if paths:
         return paths[0]
@@ -1164,13 +1209,33 @@ def analyze_job(job_id):
         else None
     )
 
+    try:
+        status = _read_status(job_dir)
+    except Exception:
+        status = {}
+
+    sweep_paths = _collect_sweep_trajectories_for_analysis(job_dir, sweep_sub_str)
     basic_paths = _collect_basic_trajectories(job_dir)
-    if basic_paths:
+
+    # Force-sweep jobs must analyze sweep sub-run trajectories first. If we took
+    # ``basic_paths`` while a stray ``outputs/sim/sim.run.up`` exists, we would
+    # miss sweep runs or mis-label every row as parent folder ``sim``.
+    if status.get("sweep_id") and sweep_paths:
+        paths = sweep_paths
+        paths_from_sweep = True
+        force_sweep_multi = True
+    elif basic_paths:
         paths = basic_paths
+        paths_from_sweep = False
         force_sweep_multi = False
+    elif sweep_paths:
+        paths = sweep_paths
+        paths_from_sweep = True
+        force_sweep_multi = True
     else:
-        paths = _collect_sweep_trajectories_for_analysis(job_dir, sweep_sub_str)
-        force_sweep_multi = bool(paths)
+        paths = []
+        paths_from_sweep = False
+        force_sweep_multi = False
     if not paths:
         return jsonify({"error": "Trajectory not ready"}), 400
 
@@ -1229,7 +1294,19 @@ def analyze_job(job_id):
             parents_resolved = [traj.parent.resolve() for traj in paths]
             same_parent = len(set(parents_resolved)) == 1
             for traj in paths:
-                label = traj.stem if same_parent else traj.parent.name
+                # Sweep trajectories all end in .../outputs/sim/sim.run.up — never use
+                # ``traj.parent.name`` (``sim``) as the replica key.
+                label = _sweep_subdir_label_from_traj(traj, job_dir)
+                if label is None and paths_from_sweep:
+                    rp = traj.resolve()
+                    if len(rp.parents) >= 3:
+                        label = rp.parents[2].name
+                    else:
+                        label = traj.stem if same_parent else traj.parent.name
+                elif label is None and same_parent:
+                    label = traj.stem
+                elif label is None:
+                    label = traj.parent.name
                 labels.append(label)
                 subdir = analysis_dir / "replicas" / label
                 subdir.mkdir(parents=True, exist_ok=True)
@@ -1323,6 +1400,38 @@ def get_sweep_analysis_file(job_id, filename):
     if not file_path.is_file():
         return jsonify({"error": "File not found"}), 404
     return send_file(file_path)
+
+
+@app.route("/api/jobs/<job_id>/analysis/download-all", methods=["GET"])
+def download_all_job_analysis(job_id):
+    """Zip everything under ``jobs/<job_id>/analysis`` (flat + ``replicas/``)."""
+    job_dir = JOBS_DIR / job_id
+    if not job_dir.exists():
+        return jsonify({"error": "Job not found"}), 404
+    analysis_dir = (job_dir / "analysis").resolve()
+    if not analysis_dir.is_dir():
+        return jsonify({"error": "No analysis directory"}), 404
+    buf = io.BytesIO()
+    count = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in analysis_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                arc = path.resolve().relative_to(analysis_dir)
+            except ValueError:
+                continue
+            zf.write(path, arcname=str(arc).replace("\\", "/"))
+            count += 1
+    if count == 0:
+        return jsonify({"error": "Analysis folder is empty"}), 404
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"{job_id}_analysis.zip",
+    )
 
 
 @app.route("/api/jobs/<job_id>/analysis/<path:filename>", methods=["GET"])
