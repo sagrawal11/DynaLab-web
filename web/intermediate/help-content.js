@@ -110,6 +110,11 @@ window.DYNALAB_HELP_CONTENT = {
     "overviewHtml": "<p>Runs a <strong>ladder of forces</strong> (in piconewtons after calibration), one sub-simulation per force (with optional replicas each).</p><p>This mirrors multi-lane centrifuge experiments where each lane feels a different effective load.</p>",
     "detailHtml": "<p>Single pulling answers 'what happens at one load'. Sweeping answers 'at which load does this epitope or domain cross a threshold'.</p><p>Cost scales with number of forces times replicas times duration—plan a sparse ladder first, then refine near interesting thresholds.</p><p>When sweep is enabled, the big Run button orchestrates many child jobs instead of the single configuration in card 4 alone.</p>"
   },
+  "epitope_candidates_sweep": {
+    "title": "Compute Epitope Candidates (force sweep)",
+    "overviewHtml": "<p>Runs a dedicated <strong>sweep-wide</strong> analysis on the parent job after all (or enough) sub-simulations finish.</p><p>It is separate from the checklist above: <strong>Run Analysis</strong> runs per sub-trajectory metrics (Rg, RMSD, …) and shows one block per force/replica.</p>",
+    "detailHtml": "<p>This button calls the server endpoint that aggregates across the ladder. Typical outputs include <strong>cryptic epitope candidates</strong> (residues whose exposure crosses heuristics as load increases), <strong>burial vs load</strong> curves, and <strong>joint clustering</strong> over all completed sweep trajectories—representative coarse PDBs are written into the job’s <code>intermediates/</code> folder (the same directory used when you tick <em>Clustering</em> on a single trajectory, but here frames from every force/replica are pooled first).</p><p>If sub-jobs failed or trajectories are missing, the rollup may be partial; fix failed lanes and re-run.</p><p>Computation can take noticeable wall time because it reads many trajectories once.</p>"
+  },
   "sweep_subsim": {
     "title": "Sub-simulation type",
     "overviewHtml": "<p>Chooses velocity-clamp vs constant-tension physics <em>inside each</em> sweep sub-job.</p><p>Matches the same conceptual choice as the single pulling card.</p>",

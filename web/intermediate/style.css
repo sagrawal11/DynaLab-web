@@ -1595,10 +1595,22 @@ input:where([type="text"], [type="email"], [type="number"], [type="password"], [
 
 /* ---- Phase 0-4 UI additions: settings, sweep, design, experimental ---- */
 
-.settings-btn {
+.header__actions {
     position: absolute;
     top: 0.5rem;
     right: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.header__actions .settings-btn {
+    position: static;
+}
+
+.settings-btn {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
@@ -1612,10 +1624,16 @@ input:where([type="text"], [type="email"], [type="number"], [type="password"], [
     font-weight: 600;
     font-family: var(--font);
     transition: background 0.2s ease, transform 0.15s ease;
+    text-decoration: none;
+    box-sizing: border-box;
 }
 .settings-btn:hover {
     background: rgba(255, 255, 255, 0.22);
     transform: translateY(-1px);
+}
+
+.settings-btn--link {
+    cursor: pointer;
 }
 
 .settings-btn__icon {
@@ -1648,12 +1666,27 @@ input:where([type="text"], [type="email"], [type="number"], [type="password"], [
     margin-top: 1rem;
 }
 
-#sweep-progress, #sweep-results {
+#sweep-progress {
     margin-top: 1rem;
     padding-top: 1rem;
     border-top: 1px solid #e5e7eb;
 }
-#sweep-progress.hidden, #sweep-results.hidden { display: none; }
+#sweep-progress.hidden { display: none; }
+
+.analysis-sweep-rollup {
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e5e7eb;
+}
+
+.analysis-sweep-rollup__heading {
+    margin-bottom: 0.35rem;
+}
+
+.analysis-sweep-rollup__title {
+    font-weight: 600;
+    font-size: 0.95rem;
+}
 
 #exp-design-output {
     background: #f8fafc;

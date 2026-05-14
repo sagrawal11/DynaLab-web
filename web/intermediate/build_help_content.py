@@ -319,6 +319,22 @@ def main() -> None:
         ),
     )
 
+    out["epitope_candidates_sweep"] = E(
+        "Compute Epitope Candidates (force sweep)",
+        md_p(
+            "Runs a dedicated <strong>sweep-wide</strong> analysis on the parent job after all (or enough) sub-simulations finish.",
+            "It is separate from the checklist above: <strong>Run Analysis</strong> runs per sub-trajectory metrics (Rg, RMSD, …) and shows one block per force/replica.",
+        ),
+        md_p(
+            "This button calls the server endpoint that aggregates across the ladder. Typical outputs include "
+            "<strong>cryptic epitope candidates</strong> (residues whose exposure crosses heuristics as load increases), "
+            "<strong>burial vs load</strong> curves, and <strong>joint clustering</strong> over all completed sweep trajectories—representative coarse PDBs are written into the job’s "
+            "<code>intermediates/</code> folder (the same directory used when you tick <em>Clustering</em> on a single trajectory, but here frames from every force/replica are pooled first).",
+            "If sub-jobs failed or trajectories are missing, the rollup may be partial; fix failed lanes and re-run.",
+            "Computation can take noticeable wall time because it reads many trajectories once.",
+        ),
+    )
+
     out["sweep_subsim"] = E(
         "Sub-simulation type",
         md_p("Chooses velocity-clamp vs constant-tension physics <em>inside each</em> sweep sub-job.", "Matches the same conceptual choice as the single pulling card."),

@@ -14,9 +14,12 @@
         <header>
             <h1>DynaLab</h1>
             <p class="subtitle">Coarse-grained MD, pulling, and binder pipeline</p>
-            <button id="open-settings-btn" type="button" class="settings-btn">
-                <span class="settings-btn__icon" aria-hidden="true">⚙</span> Settings
-            </button>
+            <div class="header__actions">
+                <a href="/intermediate/docs/index.html" class="settings-btn settings-btn--link" id="docs-link" aria-label="Open reference manual">Docs</a>
+                <button id="open-settings-btn" type="button" class="settings-btn">
+                    <span class="settings-btn__icon" aria-hidden="true">⚙</span> Settings
+                </button>
+            </div>
         </header>
 
         <!-- Settings dialog (Phase 3: Tamarind API key) -->
@@ -451,14 +454,6 @@
                             <div id="sweep-progress-fill" class="progress-fill"></div>
                         </div>
                         <div id="sweep-progress-text" class="progress-text">Queued...</div>
-                    </div>
-                    <div id="sweep-results" class="hidden">
-                        <h3>Sweep results</h3>
-                        <button id="run-sweep-analysis-btn" type="button" class="run-button">
-                            <span class="btn-text">Compute Epitope Candidates</span>
-                            <div class="spinner hidden"></div>
-                        </button>
-                        <div id="sweep-analysis-results" class="analysis-results analysis-results--stacked"></div>
                     </div>
                     </div>
                     <button type="button" class="sim-card-guard-blocker" id="sweep-guard-blocker" tabindex="-1" aria-label="Turn on Enable Sweep in the card header to edit these options"></button>
@@ -921,6 +916,21 @@
                 </div>
                 <div id="analysis-status" class="param-description"></div>
                 <div id="analysis-results" class="analysis-results analysis-results--stacked"></div>
+                <div id="sweep-rollup-row" class="analysis-sweep-rollup hidden">
+                    <div class="label-with-help analysis-sweep-rollup__heading">
+                        <span class="analysis-sweep-rollup__title">Force sweep rollups</span>
+                        <button type="button" class="help-btn help-btn--inline" data-help="epitope_candidates_sweep" aria-label="Help: sweep epitope rollups">?</button>
+                    </div>
+                    <p class="param-description">
+                        Summarizes <strong>all</strong> completed sweep sub-runs at once (cryptic epitopes, burial vs load, joint clustering into <code>intermediates/</code>).
+                        Use this after the ladder finishes; per-force plots stay in “Run Analysis” above.
+                    </p>
+                    <button id="run-sweep-analysis-btn" type="button" class="run-button">
+                        <span class="btn-text">Compute Epitope Candidates</span>
+                        <div class="spinner hidden"></div>
+                    </button>
+                    <div id="sweep-analysis-results" class="analysis-results analysis-results--stacked"></div>
+                </div>
             </div>
 
             <!-- Phase 2: Back-mapping -->

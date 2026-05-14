@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DynaLab — Science &amp; user guide</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="docs.css">
+</head>
+<body>
+    <div class="docs-topbar">
+        <span class="docs-topbar__title">DynaLab — science &amp; user guide</span>
+        <a href="/intermediate/">← Back to app</a>
+    </div>
+
+    <div class="docs-layout">
+        <nav class="docs-nav" aria-label="Table of contents">
+            <h2>Contents</h2>
+            <ul>
+                <li><a class="docs-nav__hl" href="#overview">What DynaLab is for</a></li>
+                <li><a href="#cg-md">Coarse-grained simulations</a></li>
+                <li><a href="#thermal">Thermal dynamics (no pull)</a></li>
+                <li><a href="#pulling">Mechanical pulling</a></li>
+                <li><a href="#sweeps">Force sweeps &amp; statistics</a></li>
+                <li><a href="#workflow">Recommended workflow</a></li>
+                <li><a href="#analyses">What each analysis measures</a></li>
+                <li><a href="#epitopes">Exposure, epitopes &amp; sweep rollups</a></li>
+                <li><a href="#intermediates">Structures &amp; “intermediates”</a></li>
+                <li><a href="#backmap">Back-mapping</a></li>
+                <li><a href="#design">AI binder design</a></li>
+                <li><a href="#wet-lab">Experiments &amp; comparison</a></li>
+                <li><a href="#forces">Force units &amp; calibration</a></li>
+                <li><a href="#membrane">Membrane &amp; restraints</a></li>
+                <li><a href="#using-ui">Using the app (practical)</a></li>
+                <li><a href="#limitations">Limitations &amp; caution</a></li>
+                <li><a href="#glossary">Glossary</a></li>
+                <li><a href="#further-reading">Further reading</a></li>
+            </ul>
+        </nav>
+
+        <main class="docs-main">
+            <h1 id="overview">What DynaLab is for</h1>
+            <p class="docs-lead">
+                DynaLab helps you ask <strong>mechanical</strong> questions about a protein: how it deforms under tension,
+                which parts become exposed at different loads, and how those insights can feed structure-based binder
+                ideas and bench experiments. The core idea is <strong>mechanobiology</strong>—many proteins experience
+                forces in tissue; their <strong>hidden (cryptic) binding surfaces</strong> can appear only when the chain
+                is stretched or partially unfolded.
+            </p>
+            <p>
+                You do not need to write code to use the app. This guide explains the <strong>science behind each step</strong>:
+                what the simulation is approximating, what the plots mean, and how to interpret results when planning
+                experiments or discussing findings with collaborators.
+            </p>
+
+            <section id="cg-md">
+                <h2>Coarse-grained simulations</h2>
+                <p>
+                    DynaLab drives <strong>Upside2</strong>, a <strong>coarse-grained (CG)</strong> protein model. Instead of every atom,
+                    the representation keeps enough degrees of freedom to capture backbone mechanics and secondary-structure
+                    tendencies at a fraction of the cost of all-atom MD. That makes it realistic to explore <strong>many forces,
+                    replicas, and long timelines</strong>—exactly the regime where mechanical unfolding and exposure transitions show up.
+                </p>
+                <p>
+                    The trade-off is resolution: side-chain packing, explicit solvent, and many chemical details are simplified or absent.
+                    Exposure-style metrics are <strong>proxies</strong>, not crystallography. Use CG to form <strong>hypotheses</strong>
+                    (which regions move, in what order, near which loads), then validate with higher-resolution methods or experiment where it matters.
+                </p>
+            </section>
+
+            <section id="thermal">
+                <h2>Thermal dynamics (no pull)</h2>
+                <p>
+                    <strong>Constant temperature</strong> simulations let the chain fluctuate around its native basin. You use them to
+                    check stability, sampling, and baseline flexibility before adding load. <strong>Replica exchange</strong> (when enabled)
+                    swaps replicas at different temperatures to cross energy barriers a single temperature might not cross—useful for
+                    broad conformational exploration, not combined with pulling in this workflow.
+                </p>
+                <p>
+                    Independent <strong>replicas</strong> at the same settings are separate “parallel experiments”: they help you see
+                    run-to-run variability, which is especially important when pathways are stochastic.
+                </p>
+            </section>
+
+            <section id="pulling">
+                <h2>Mechanical pulling</h2>
+                <h3>Constant tension</h3>
+                <p>
+                    A <strong>fixed load</strong> is applied along a direction you configure (often end-to-end). The protein sits under
+                    sustained force and fluctuates; over time you may see partial unfolding, domain peeling, or exposure of buried loops.
+                    This is the closest computational analogue to assays where <strong>force is held near constant</strong>—conceptually
+                    aligned with how a multi-lane centrifuge can expose the same construct to different steady loads.
+                </p>
+                <h3>Velocity clamp (AFM-style)</h3>
+                <p>
+                    One end moves at a controlled speed while the other is fixed. The recorded <strong>force–extension</strong> behavior
+                    resembles single-molecule AFM traces: unfolding appears as sawtooth-like features when domains resist then suddenly extend.
+                    Use this mode when your scientific story is about <strong>pathway and rupture forces under controlled pulling speed</strong>,
+                    not strictly constant-load steady states.
+                </p>
+            </section>
+
+            <section id="sweeps">
+                <h2>Force sweeps &amp; statistics</h2>
+                <p>
+                    A <strong>force sweep</strong> runs the same pulling setup at several target forces (a “ladder”), optionally with
+                    <strong>multiple replicas per force</strong>. Scientifically, you are mapping <strong>load → response</strong>:
+                    at which forces does extension jump, do secondary-structure signals change, or do exposure proxies spike?
+                </p>
+                <p>
+                    Replicas matter because unfolding is <strong>stochastic</strong>: two identical runs can differ in timing and pathway.
+                    Treat replicas as repeated experiments; compare distributions, not single traces, when drawing conclusions.
+                </p>
+            </section>
+
+            <section id="workflow">
+                <h2>Recommended workflow</h2>
+                <p>Think in terms of <strong>questions</strong>, not file names:</p>
+                <ol>
+                    <li><strong>Structure in</strong> — Upload your target PDB and set simulation length and temperature sensibly for the size of the system and the phenomena you care about.</li>
+                    <li><strong>Mechanics</strong> — Enable pulling or a force sweep; choose tension vs velocity clamp to match the experimental analogy you have in mind.</li>
+                    <li><strong>Observe</strong> — After a run completes, use <strong>Run Analysis</strong> to quantify compactness, flexibility, contacts, exposure, etc., along time.</li>
+                    <li><strong>Sweep-wide picture</strong> (force sweeps only) — Use <strong>Compute Epitope Candidates</strong> to summarize how exposure and epitope-style candidates evolve <em>across the whole ladder</em>, not just one force.</li>
+                    <li><strong>Representative shapes</strong> — Clustering (per trajectory or via the sweep rollup) picks a small set of structures that stand in for major visited states.</li>
+                    <li><strong>All-atom bridge</strong> — Back-mapping rebuilds full-atom coordinates so downstream tools that expect atomic detail can run.</li>
+                    <li><strong>Binder hypotheses</strong> — The AI design step proposes nanobody-like scaffolds and sequences against a chosen snapshot and hotspot hints; outputs are ranked models, not guaranteed drugs.</li>
+                    <li><strong>Bench alignment</strong> — Generate an experiment sheet and, once you have wet-lab readouts, compare fluorescence (or similar) vs force to where simulations predicted transitions.</li>
+                </ol>
+                <div class="docs-callout">
+                    <strong>Epitope rollup vs clustering:</strong> You can obtain representative structures from per-trajectory clustering alone.
+                    The sweep rollup adds a <strong>joint</strong> view across forces and is especially useful for sweep-wide epitope and burial plots—
+                    it complements, rather than replaces, reading individual force/replica analyses.
+                </div>
+            </section>
+
+            <section id="analyses">
+                <h2>What each analysis measures</h2>
+                <p>Each checkbox in <strong>Post-processing analysis</strong> answers a different scientific question about the trajectory you select.</p>
+                <div class="docs-table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Analysis</th><th>Scientific question</th><th>How to read it</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><strong>Rg</strong> (radius of gyration)</td><td>Is the chain expanding or compacting over time?</td><td>Upward trends often accompany unfolding or swelling; combine with other metrics.</td></tr>
+                            <tr><td><strong>RMSD</strong></td><td>How far has the structure drifted from the starting frame?</td><td>Large RMSD can mean real rearrangement or rigid-body motion; align interpretation with visuals.</td></tr>
+                            <tr><td><strong>RMSF</strong></td><td>Which residues fluctuate most?</td><td>Peaks highlight hinges and loops; under force, flexible epitope-bearing loops may spike before exposure events.</td></tr>
+                            <tr><td><strong>End-to-end</strong></td><td>How stretched is the chain between termini (or defined ends)?</td><td>Central readout for pulling: relates directly to extension under load.</td></tr>
+                            <tr><td><strong>H-bonds / salt bridges</strong></td><td>Are stabilizing contacts breaking?</td><td>Loss of native contacts often tracks unfolding stages; CG proxies are qualitative.</td></tr>
+                            <tr><td><strong>Shape</strong></td><td>Is the molecule’s mass distribution spherical, rod-like, or asymmetric?</td><td>Useful alongside Rg for classifying compact vs extended states.</td></tr>
+                            <tr><td><strong>Cross-correlation</strong></td><td>Which parts move together?</td><td>Blocks suggest domains or coupled motions; helps interpret collective behavior.</td></tr>
+                            <tr><td><strong>Secondary structure</strong></td><td>Where are helices and sheets, and do they persist?</td><td>Loss of sheet or helix content under load supports mechanical unfolding narratives.</td></tr>
+                            <tr><td><strong>PCA</strong></td><td>What are the dominant collective motions?</td><td>First components often capture opening/closing; useful for summarizing large trajectories.</td></tr>
+                            <tr><td><strong>Force vs extension</strong></td><td>What load–extension relationship occurred?</td><td>Pulling-specific; compare qualitative shape to AFM-like expectations.</td></tr>
+                            <tr><td><strong>Contact map</strong></td><td>Which residue pairs touch often?</td><td>Shows native contact loss and new contacts; computationally heavier.</td></tr>
+                            <tr><td><strong>Burial scan</strong></td><td>When do side chains become more solvent-exposed?</td><td>Central to <strong>cryptic epitope</strong> thinking: buried grooves can open under tension.</td></tr>
+                            <tr><td><strong>Dihedral unfolding</strong></td><td>Are backbone Ramachandran basins shifting?</td><td>Captures gradual loss of native φ/ψ preferences vs a single SS label.</td></tr>
+                            <tr><td><strong>Clustering</strong></td><td>How many distinct shapes did we visit?</td><td>Writes representative PDBs for later back-mapping and design; medoids are scientific choices, not ground truth.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section id="epitopes">
+                <h2>Exposure, epitopes &amp; sweep rollups</h2>
+                <p>
+                    A <strong>cryptic epitope</strong> is a site that is sterically or energetically hidden when the protein is relaxed but can
+                    become reachable when mechanics open the structure. In simulation, “cryptic epitope candidates” are usually identified from
+                    <strong>patterns in exposure proxies</strong> as a function of time and/or force—not from immunology directly.
+                </p>
+                <p>
+                    For <strong>force sweeps</strong>, <strong>Run Analysis</strong> gives you one block of plots per force and replica: ideal for
+                    “what happened at 22 pN on replica 2?”. <strong>Compute Epitope Candidates</strong> adds a <strong>sweep-wide</strong> layer:
+                    which residues rank highly when you consider the ladder together, and how burial-like signals vary across force. Use both:
+                    per-run detail plus global summary.
+                </p>
+            </section>
+
+            <section id="intermediates">
+                <h2>Structures &amp; “intermediates”</h2>
+                <p>
+                    A trajectory contains thousands of frames; clustering picks a <strong>small set of representative structures</strong>
+                    (often called intermediates in folding and unfolding literature) that approximate major states: native-like, partially unfolded,
+                    highly extended, etc. Those snapshots are what you later back-map and optionally present to a binder model as the “target face”
+                    under mechanical stress.
+                </p>
+                <p>
+                    <strong>Per-trajectory clustering</strong> summarizes one run. <strong>Joint sweep clustering</strong> (part of the epitope rollup)
+                    pools information across completed sweep trajectories to find representatives that span the whole mechanical experiment.
+                    Both write coarse structures the app lists before back-mapping; they answer slightly different scientific questions.
+                </p>
+            </section>
+
+            <section id="backmap">
+                <h2>Back-mapping</h2>
+                <p>
+                    Coarse models are excellent for mechanics at scale; most antibody and nanobody design pipelines expect <strong>all-atom</strong>
+                    coordinates with realistic bond chemistry for at least the target. Back-mapping <strong>reconstructs</strong> heavy atoms from
+                    the coarse backbone using geometric rules, then optionally relaxes clashes. The result is a <strong>usable hypothesis structure</strong>,
+                    not a crystal structure—always inspect in a molecular viewer before over-interpreting side chains.
+                </p>
+            </section>
+
+            <section id="design">
+                <h2>AI binder design</h2>
+                <p>
+                    The design stage combines <strong>generative backbone sampling</strong>, <strong>sequence design</strong>, and
+                    <strong>structure prediction / scoring</strong> (via the Tamarind integration). You choose a back-mapped snapshot and
+                    <strong>hotspot residues</strong>—typically residues your exposure and sweep analyses highlighted—to bias the binder toward
+                    biologically plausible contacts.
+                </p>
+                <p>
+                    The UI can request many backbone variants and several sequences per backbone. That produces a <strong>large ranked pool</strong>
+                    of in silico candidates (scores such as predicted interface confidence). Treat the output as <strong>hypotheses for synthesis
+                    or further modeling</strong>, ranked suggestions—not a count of validated therapeutics. Start small while learning the workflow;
+                    expand the search when you understand cost and noise.
+                </p>
+            </section>
+
+            <section id="wet-lab">
+                <h2>Experiments &amp; comparison</h2>
+                <p>
+                    The centrifuge-oriented <strong>experiment sheet</strong> turns your simulation-informed forces and controls into a bench-oriented
+                    protocol narrative: zones, loads, controls, and attachment chemistry described in language a lab can execute.
+                </p>
+                <p>
+                    After you collect <strong>fluorescence (or similar) vs force</strong> with replicates and conditions, you can upload a tidy CSV
+                    and overlay it with the simulation-derived threshold you care about. The comparison plot supports the scientific loop:
+                    <strong>did the system respond near the load the model predicted?</strong> Disagreement is informative—it may mean calibration,
+                    timescale, construct differences, or limitations of the CG model.
+                </p>
+            </section>
+
+            <section id="forces">
+                <h2>Force units &amp; calibration</h2>
+                <p>
+                    Single-protein mechanics lives in the <strong>piconewton (pN)</strong> range—tiny by everyday standards but huge relative to
+                    thermal noise at the nanoscale. The app can display and schedule forces in pN after a <strong>calibration</strong> that maps the
+                    simulation’s internal tension units to physical force using a reference system (similar in spirit to calibrating an instrument
+                    against a known standard). Revisit calibration when the force field, integrator settings, or target class changes substantially.
+                </p>
+            </section>
+
+            <section id="membrane">
+                <h2>Membrane &amp; restraints</h2>
+                <p>
+                    <strong>Membrane</strong> options approximate confinement or a slab geometry so membrane-associated targets can be oriented
+                    with a hydrophobic midplane in mind. This is still CG: use it when the scientific question benefits from z (or curvature) constraints,
+                    and coordinate the PDB orientation with the geometry you choose.
+                </p>
+                <p>
+                    <strong>Restraints</strong> (distance locks, walls, springs, nails) let you mimic experimental anchors, keep domains from
+                    diffusing apart unrealistically, or test “what if this contact were held?” scenarios. They change the effective free energy landscape—
+                    document them clearly when reporting results.
+                </p>
+            </section>
+
+            <section id="using-ui">
+                <h2>Using the app (practical)</h2>
+                <ul>
+                    <li><strong>Settings</strong> — Stores your external AI provider credentials locally on the server machine for real design runs; mock mode is available for training without cloud charges.</li>
+                    <li><strong>Upload &amp; basic simulation</strong> — Define temperature, length, and whether you want replica exchange or multiple independent replicas.</li>
+                    <li><strong>Pulling &amp; force sweep</strong> — Configure load geometry; enable sweep for a force ladder. Watch sub-job progress until the sweep completes.</li>
+                    <li><strong>Membrane &amp; restraints</strong> — Optional; enable when your biological setup needs them.</li>
+                    <li><strong>Run</strong> — Starts the simulation job; when finished, results and analysis sections unlock.</li>
+                    <li><strong>Post-processing analysis</strong> — Select metrics that match your hypothesis, then run. For sweeps, expand rows per force/replica.</li>
+                    <li><strong>Force sweep rollups</strong> — Appears only after a sweep; use <strong>Compute Epitope Candidates</strong> for ladder-wide summaries. The <strong>?</strong> next to the heading opens detailed help.</li>
+                    <li><strong>Back-mapping</strong> — Run once you have representative coarse PDBs listed.</li>
+                    <li><strong>AI nanobody design</strong> — Choose snapshot and hotspots; review ranked candidates before any wet work.</li>
+                    <li><strong>Centrifuge experiment &amp; comparison</strong> — Generate the sheet, run the lab, upload data, compare to prediction.</li>
+                </ul>
+                <p class="docs-muted">Inline <strong>?</strong> help buttons throughout the app mirror short and long explanations similar in spirit to this guide.</p>
+            </section>
+
+            <section id="limitations">
+                <h2>Limitations &amp; caution</h2>
+                <ul>
+                    <li><strong>Resolution</strong> — CG exposes large-scale mechanics; fine epitope chemistry and solvent structure need other methods.</li>
+                    <li><strong>Single trajectories</strong> — Long runs may still miss rare events; sweeps and replicas reduce but do not eliminate that risk.</li>
+                    <li><strong>AI scores</strong> — Predicted complex scores are models with known failure modes; treat top hits as leads for validation.</li>
+                    <li><strong>Back-mapping</strong> — Reconstruction introduces stereochemical uncertainty; minimize and visually inspect before publication figures.</li>
+                </ul>
+            </section>
+
+            <section id="glossary">
+                <h2>Glossary</h2>
+                <ul>
+                    <li><strong>Coarse-grained (CG) MD</strong> — Molecular dynamics with simplified particles and forces; faster, lower resolution than all-atom.</li>
+                    <li><strong>Cryptic epitope</strong> — Binding surface hidden at rest that can appear under mechanical or allosteric opening (used loosely here for exposure-driven leads).</li>
+                    <li><strong>Replica</strong> — Independent repeat of the same simulation conditions; quantifies stochasticity.</li>
+                    <li><strong>Force sweep</strong> — Family of runs at different loads to map mechanical response.</li>
+                    <li><strong>Medoid / representative</strong> — Cluster center used as a snapshot stand-in for a group of similar frames.</li>
+                    <li><strong>ipTM / pTM / pLDDT</strong> — Model-reported confidence and interface metrics for ranked AI-designed complexes.</li>
+                    <li><strong>pN</strong> — Piconewton, ~10⁻¹² N; typical scale for single-molecule pulling after calibration.</li>
+                </ul>
+            </section>
+
+            <section id="further-reading">
+                <h2>Further reading</h2>
+                <p>
+                    For the <strong>research narrative</strong> (fibrosis context, centrifuge motivation, and pipeline motivation), see
+                    <code>RESEARCH_VISION.md</code> in the repository. For <strong>step-by-step recipes</strong> that include command-line equivalents,
+                    see <code>WORKFLOWS.md</code>.
+                </p>
+                <p class="docs-muted">
+                    Engineers extending the software should use <code>web/server/README.md</code> (API and server behavior) and the codebase;
+                    this page intentionally stays user- and science-oriented.
+                </p>
+            </section>
+        </main>
+    </div>
+</body>
+</html>

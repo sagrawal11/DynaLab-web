@@ -12,7 +12,7 @@ cd /workspaces/DynaLab-merge-dynalab/web/server
 python app.py
 ```
 
-Then open **http://localhost:5001/** in your browser (redirects to the DynaLab UI at `/intermediate/`).
+Then open **http://localhost:5001/** in your browser (redirects to the DynaLab UI at `/intermediate/`). The **science & user guide** (Docs) is at **`/intermediate/docs/index.html`** (short link **`/docs/`** redirects there; the app header **Docs** button uses the long path so it works even if redirects are disabled upstream).
 
 All Python dependencies (Flask, mdtraj, scikit-learn, matplotlib, etc.) are baked into `upside2-env` via `.devcontainer/environment.yml`, so no extra `pip install` step is needed. If you build on a non-conda system (e.g. plain Linux EC2 without conda), `requirements.txt` lists what pip would need.
 
@@ -28,6 +28,7 @@ If `which python` shows a base conda path (e.g. `/opt/conda/bin/python`) instead
 ## What it does
 
 - Serves the DynaLab static UI under `/intermediate/`; **`GET /` redirects there** (default landing page).
+- Serves the **science & user guide** (HTML) as **`/intermediate/docs/index.html`** (+ `docs.css` alongside); sources live in `web/intermediate/docs/`. **`GET /docs/`** (and `/docs`) **302 redirect** to that page for short URLs.
 - `POST /api/jobs` — accepts a PDB upload + JSON config, runs the simulation as a subprocess, returns a `job_id`.
 - `GET /api/jobs/<job_id>` — returns status, current step, and total steps (parsed from the simulation log).
 - `GET /api/jobs/<job_id>/download` — downloads the completed trajectory: a single `.run.up` for one replica, or a zip of all replica files for multi-replica constant-T or replica-exchange jobs.

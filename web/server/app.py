@@ -12,6 +12,8 @@ subprocess and report status' lives elsewhere:
   - ``design/pipeline.py``            -> RFdiff -> MPNN -> AF-Multimer pipeline
   - ``design/tamarind_client.py``     -> hosted-AI client (Tamarind Bio)
   - ``start/Force_Sweep.py``          -> N-force pulling sweep orchestrator
+
+Static science & user guide: ``web/intermediate/docs/`` (URLs ``/intermediate/docs/index.html`` and redirect ``/docs/``; linked from the UI as **Docs**).
 """
 
 from __future__ import annotations
@@ -148,6 +150,13 @@ def intermediate_index():
 @app.route("/intermediate/<path:filename>")
 def intermediate_static(filename):
     return send_from_directory(WEB_DIR / "intermediate", filename)
+
+
+@app.route("/docs")
+@app.route("/docs/")
+def docs_redirect():
+    """Short URL for the science & user guide (files live under web/intermediate/docs/)."""
+    return redirect("/intermediate/docs/index.html", code=302)
 
 
 @app.route("/media/<path:filename>")

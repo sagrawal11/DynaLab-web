@@ -58,7 +58,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const sweepReplicas = document.getElementById('sweep-replicas');
     const sweepAnchor = document.getElementById('sweep-anchor');
     const sweepPuller = document.getElementById('sweep-puller');
-    const sweepResultsEl = document.getElementById('sweep-results');
+    const sweepRollupRow = document.getElementById('sweep-rollup-row');
     const runSweepAnalysisBtn = document.getElementById('run-sweep-analysis-btn');
     const sweepAnalysisResults = document.getElementById('sweep-analysis-results');
 
@@ -1178,6 +1178,8 @@ document.addEventListener('DOMContentLoaded', function () {
         analysisResultsEl.innerHTML = '';
         analysisStatusEl.textContent = '';
         if (downloadAllAnalysisBtn) downloadAllAnalysisBtn.disabled = true;
+        if (sweepAnalysisResults) sweepAnalysisResults.innerHTML = '';
+        if (sweepRollupRow) sweepRollupRow.classList.add('hidden');
         const log = document.getElementById('log-output');
         if (log) log.textContent = '';
 
@@ -1311,6 +1313,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const text = document.getElementById('progress-text');
         if (fill) fill.style.width = '2%';
         if (text) text.textContent = 'Sweep queued...';
+        currentSweepId = null;
         fetch('/api/sweeps', { method: 'POST', body: formData })
             .then(r => r.json())
             .then(data => {
@@ -1444,10 +1447,17 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     }
 
+    function updateSweepRollupRowVisibility() {
+        if (!sweepRollupRow) return;
+        if (currentSweepId) sweepRollupRow.classList.remove('hidden');
+        else sweepRollupRow.classList.add('hidden');
+    }
+
     function displayResults(jobId) {
         unfreezeConfigSummary();
         currentJobId = jobId;
         currentSweepId = null;
+        updateSweepRollupRowVisibility();
         const spinner = runBtn.querySelector('.spinner');
         if (spinner) spinner.classList.add('hidden');
         runBtn.querySelector('.btn-text').textContent = 'Run Complete';
@@ -1468,13 +1478,14 @@ document.addEventListener('DOMContentLoaded', function () {
     function displaySweepResults(jobId, data) {
         unfreezeConfigSummary();
         currentJobId = jobId;
-        sweepResultsEl.classList.remove('hidden');
+        if (sweepAnalysisResults) sweepAnalysisResults.innerHTML = '';
+        updateSweepRollupRowVisibility();
         analysisSection.classList.remove('hidden');
         analysisResultsEl.innerHTML = '';
         const sweepOk = data.status === 'completed';
         if (downloadAllAnalysisBtn) downloadAllAnalysisBtn.disabled = true;
         analysisStatusEl.textContent = sweepOk
-            ? '“Run Analysis” runs the checklist on every completed sweep sub-run (one block per force/replica); results are not averaged across forces. For sweep-wide rollups, use “Compute Epitope Candidates”.'
+            ? '“Run Analysis” runs the checklist on every completed sweep sub-run (one block per force/replica); results are not averaged across forces. For sweep-wide rollups, open “Force sweep rollups” under the per-trajectory results and click “Compute Epitope Candidates”.'
             : '';
         const spinner = runBtn.querySelector('.spinner');
         if (spinner) spinner.classList.add('hidden');
@@ -1541,7 +1552,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function runSweepAnalysis() {
-        if (!currentJobId) return;
+        if (!currentJobId || !runSweepAnalysisBtn) return;
         const spinner = runSweepAnalysisBtn.querySelector('.spinner');
         runSweepAnalysisBtn.disabled = true;
         if (spinner) spinner.classList.remove('hidden');
@@ -1607,7 +1618,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const intro = document.createElement('p');
             intro.className = 'param-description';
             if (isForceSweep) {
-                intro.textContent = 'Force sweep: open a row for that force and replica. Per-trajectory plots are inside each row. Cross-replica means (when present) are under “All replicas”. Sweep-wide rollups (epitopes, etc.) use “Compute Epitope Candidates” on the sweep card.';
+                intro.textContent = 'Force sweep: open a row for that force and replica. Per-trajectory plots are inside each row. Cross-replica means (when present) are under “All replicas”. Sweep-wide rollups (epitopes, burial vs load, sweep intermediates) use “Compute Epitope Candidates” in the section below.';
             } else if (kind === 'replica_exchange') {
                 intro.textContent = 'Replica-exchange: one expandable row per temperature replica. “All replicas” holds arithmetic means of numeric stats across the ladder (plots are not averaged).';
             } else {
