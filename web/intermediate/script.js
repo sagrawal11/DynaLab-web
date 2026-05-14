@@ -180,6 +180,26 @@ document.addEventListener('DOMContentLoaded', function () {
     let configSummaryFrozen = false;
     let frozenConfigSummaryText = '';
 
+    // Elapsed timer for run / sweep — declare before init() so _timerStart / _timerInterval
+    // are initialized before any listener or fetch callback can invoke startTimer().
+    let _timerInterval = null;
+    let _timerStart = null;
+    function startTimer() {
+        _timerStart = Date.now();
+        const el = document.getElementById('elapsed-time');
+        if (_timerInterval) clearInterval(_timerInterval);
+        _timerInterval = setInterval(() => {
+            const s = ((Date.now() - _timerStart) / 1000).toFixed(1);
+            if (el) el.textContent = `Time: ${s}s`;
+        }, 50);
+    }
+    function stopTimer() {
+        if (_timerInterval) {
+            clearInterval(_timerInterval);
+            _timerInterval = null;
+        }
+    }
+
     const modeDescriptions = {
         constant: 'Standard molecular dynamics at constant temperature.',
         replica:  'Replica exchange MD for enhanced sampling across temperature range.',
@@ -197,6 +217,33 @@ document.addEventListener('DOMContentLoaded', function () {
     setupEventListeners();
         loadSettingsStatus();
         setupHelpModal();
+    }
+
+    function updateDistanceLockRowStiffnessUI(entry) {
+        if (!entry) return;
+        const customOn = !!entry.querySelector('input.distance-lock-stiff[value="custom"]:checked');
+        const kWrap = entry.querySelector('.distance-lock-k-field');
+        const rigidHint = entry.querySelector('.distance-lock-rigid-hint');
+        if (kWrap) kWrap.classList.toggle('hidden', !customOn);
+        if (rigidHint) rigidHint.classList.toggle('hidden', customOn);
+    }
+
+    function bindDistanceLockEntry(entry) {
+        if (!entry || entry.dataset.dlBound === '1') return;
+        entry.dataset.dlBound = '1';
+        entry.querySelectorAll('input.distance-lock-stiff').forEach((inp) => {
+            inp.addEventListener('change', () => {
+                updateDistanceLockRowStiffnessUI(entry);
+                updateConfigSummary();
+            });
+        });
+        updateDistanceLockRowStiffnessUI(entry);
+    }
+
+    function refreshAllDistanceLockBindings() {
+        const root = document.getElementById('distance-lock-entries');
+        if (!root) return;
+        root.querySelectorAll('.afm-entry').forEach(bindDistanceLockEntry);
     }
 
     function setupEventListeners() {
@@ -250,7 +297,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 updateConfigSummary();
                 return;
             }
-            toggleCardContent(pullingContent, enablePulling.checked);
             syncSweepPullingExclusivity();
             updateConfigSummary();
         });
@@ -261,22 +307,12 @@ document.addEventListener('DOMContentLoaded', function () {
             updateConfigSummary();
         });
 
-        function setMembraneControlsInteractive(on) {
-            [membraneCoordSystem, membraneInner, membraneOuter, disableRecentering, disableZRecentering].forEach((el) => {
-                if (!el) return;
-                el.disabled = !on;
-                el.setAttribute('aria-disabled', on ? 'false' : 'true');
-            });
-        }
-
         enableMembrane.addEventListener('change', () => {
-            toggleCardContent(membraneContent, enableMembrane.checked);
-            setMembraneControlsInteractive(enableMembrane.checked);
+            syncOptionalSimulationCardGuards();
             updateConfigSummary();
         });
-        setMembraneControlsInteractive(enableMembrane.checked);
         enableRestraints.addEventListener('change', () => {
-            toggleCardContent(restraintsContent, enableRestraints.checked);
+            syncOptionalSimulationCardGuards();
             updateConfigSummary();
         });
         disableRecentering.addEventListener('change', updateConfigSummary);
@@ -304,30 +340,17 @@ document.addEventListener('DOMContentLoaded', function () {
         if (addDlBtn) addDlBtn.addEventListener('click', addDistanceLockEntry);
         const enableDl = document.getElementById('enable-distance-locks');
         const dlWrap = document.getElementById('distance-lock-entries');
-        const rigidSg = document.getElementById('restraint-group-rigid-spring');
-        function updateRestraintGroupSpringVisibility() {
-            const rigidOn = rigidSg && rigidSg.checked;
-            document.querySelectorAll('.distance-lock-k-field').forEach(el => {
-                el.classList.toggle('hidden', rigidOn);
-            });
-        }
         if (enableDl && dlWrap && addDlBtn) {
             enableDl.addEventListener('change', () => {
                 const on = enableDl.checked;
                 dlWrap.classList.toggle('hidden', !on);
                 addDlBtn.classList.toggle('hidden', !on);
-                if (on) updateRestraintGroupSpringVisibility();
+                if (on) refreshAllDistanceLockBindings();
                 updateConfigSummary();
             });
         }
-        if (rigidSg) {
-            rigidSg.addEventListener('change', () => {
-                updateRestraintGroupSpringVisibility();
-                updateConfigSummary();
-            });
-        }
-        updateRestraintGroupSpringVisibility();
         setupRemoveHandlers();
+        refreshAllDistanceLockBindings();
 
         runBtn.addEventListener('click', runSimulationOrSweep);
         const runIncompatOverlay = document.getElementById('run-btn-incompat-overlay');
@@ -351,7 +374,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     showSimulationRuleFeedback(
                         'Cannot enable the force sweep while single-job pulling is on. Turn off pulling in card 4 first—each sweep sub-job already runs its own pulling protocol.',
                     );
-                    toggleCardContent(sweepContent, false);
                     syncSweepPullingExclusivity();
                     updateConfigSummary();
                     return;
@@ -361,12 +383,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     showSimulationRuleFeedback(
                         'Force sweep is only available in constant-temperature mode. Switch simulation mode away from replica exchange.',
                     );
-                    toggleCardContent(sweepContent, false);
                     syncSweepPullingExclusivity();
                     updateConfigSummary();
                     return;
                 }
-                toggleCardContent(sweepContent, enableSweep.checked);
                 syncSweepPullingExclusivity();
                 updateConfigSummary();
             });
@@ -406,6 +426,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (settingsSaveBtn) settingsSaveBtn.addEventListener('click', saveSettings);
 
         syncSweepPullingExclusivity();
+        setupSimCardGuardBlockers();
         updateRunButton();
     }
 
@@ -477,7 +498,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function syncSweepPullingExclusivity() {
-        if (!enableSweep || !enablePulling) return;
+        if (!enableSweep || !enablePulling) {
+            syncOptionalSimulationCardGuards();
+            return;
+        }
         const isRep = simMode && simMode.value === 'replica';
 
         if (isRep) {
@@ -485,8 +509,7 @@ document.addEventListener('DOMContentLoaded', function () {
             enableSweep.disabled = true;
             setCardToggleTitle(enablePulling, 'Replica exchange does not support pulling or the multi-force sweep. Switch to constant temperature to use those.');
             setCardToggleTitle(enableSweep, 'Replica exchange does not support pulling or the multi-force sweep. Switch to constant temperature to use those.');
-            toggleCardContent(pullingContent, false);
-            toggleCardContent(sweepContent, false);
+            syncOptionalSimulationCardGuards();
             refreshSimulationRulesPanel();
             updateRunButton();
             return;
@@ -515,8 +538,7 @@ document.addEventListener('DOMContentLoaded', function () {
             setCardToggleTitle(enableSweep, '');
         }
 
-        toggleCardContent(pullingContent, enablePulling.checked);
-        toggleCardContent(sweepContent, enableSweep.checked);
+        syncOptionalSimulationCardGuards();
         refreshSimulationRulesPanel();
         updateRunButton();
     }
@@ -530,7 +552,6 @@ document.addEventListener('DOMContentLoaded', function () {
         if (enablePulling) {
             if (isReplica && hadPull) {
                 enablePulling.checked = false;
-                toggleCardContent(pullingContent, false);
                 showSimulationRuleFeedback(
                     'Pulling was turned off: replica exchange does not support pulling in this workflow.',
                 );
@@ -539,7 +560,6 @@ document.addEventListener('DOMContentLoaded', function () {
         if (enableSweep) {
             if (isReplica && hadSweep) {
                 enableSweep.checked = false;
-                if (sweepContent) toggleCardContent(sweepContent, false);
                 showSimulationRuleFeedback(
                     'Force sweep was turned off: it is only available in constant-temperature mode.',
                 );
@@ -548,8 +568,96 @@ document.addEventListener('DOMContentLoaded', function () {
         syncSweepPullingExclusivity();
     }
 
+    function setMembraneControlsInteractive(on) {
+        [membraneCoordSystem, membraneInner, membraneOuter, disableRecentering, disableZRecentering].forEach((el) => {
+            if (!el) return;
+            el.disabled = !on;
+            el.setAttribute('aria-disabled', on ? 'false' : 'true');
+        });
+    }
+
     function toggleCardContent(content, enabled) {
         content.classList.toggle('disabled', !enabled);
+    }
+
+    const simCardGuardTimers = {};
+
+    function flashSimCardGuardMessage(messageElId, message) {
+        const el = document.getElementById(messageElId);
+        if (!el || !message) return;
+        el.textContent = message;
+        el.classList.remove('hidden');
+        if (simCardGuardTimers[messageElId]) clearTimeout(simCardGuardTimers[messageElId]);
+        simCardGuardTimers[messageElId] = setTimeout(() => {
+            el.textContent = '';
+            el.classList.add('hidden');
+            simCardGuardTimers[messageElId] = null;
+        }, 4200);
+    }
+
+    function clearSimCardGuardMessage(messageElId) {
+        const el = document.getElementById(messageElId);
+        if (el) {
+            el.textContent = '';
+            el.classList.add('hidden');
+        }
+        if (simCardGuardTimers[messageElId]) {
+            clearTimeout(simCardGuardTimers[messageElId]);
+            simCardGuardTimers[messageElId] = null;
+        }
+    }
+
+    function optionalSimCardInteractable(checkbox) {
+        return !!(checkbox && checkbox.checked && !checkbox.disabled);
+    }
+
+    function setInteractiveRootInert(rootId, inert) {
+        const root = document.getElementById(rootId);
+        if (!root) return;
+        if (inert) root.setAttribute('inert', '');
+        else root.removeAttribute('inert');
+    }
+
+    function syncOptionalSimulationCardGuards() {
+        const pullOn = optionalSimCardInteractable(enablePulling);
+        toggleCardContent(pullingContent, pullOn);
+        setInteractiveRootInert('pulling-interactive-root', !pullOn);
+        if (pullOn) clearSimCardGuardMessage('pulling-guard-message');
+
+        const sweepOn = optionalSimCardInteractable(enableSweep);
+        if (sweepContent) toggleCardContent(sweepContent, sweepOn);
+        setInteractiveRootInert('sweep-interactive-root', !sweepOn);
+        if (sweepOn) clearSimCardGuardMessage('sweep-guard-message');
+
+        const memOn = optionalSimCardInteractable(enableMembrane);
+        toggleCardContent(membraneContent, memOn);
+        setMembraneControlsInteractive(memOn);
+        setInteractiveRootInert('membrane-interactive-root', !memOn);
+        if (memOn) clearSimCardGuardMessage('membrane-guard-message');
+
+        const resOn = optionalSimCardInteractable(enableRestraints);
+        toggleCardContent(restraintsContent, resOn);
+        setInteractiveRootInert('restraints-interactive-root', !resOn);
+        if (resOn) clearSimCardGuardMessage('restraints-guard-message');
+    }
+
+    const SIM_CARD_GUARD_BLOCKERS = [
+        { id: 'pulling-guard-blocker', messageId: 'pulling-guard-message', phrase: 'Enable Pulling' },
+        { id: 'sweep-guard-blocker', messageId: 'sweep-guard-message', phrase: 'Enable Sweep' },
+        { id: 'membrane-guard-blocker', messageId: 'membrane-guard-message', phrase: 'Enable Membrane' },
+        { id: 'restraints-guard-blocker', messageId: 'restraints-guard-message', phrase: 'Enable Restraints' },
+    ];
+
+    function setupSimCardGuardBlockers() {
+        const line = (phrase) => `Turn on ${phrase} above to change these options.`;
+        SIM_CARD_GUARD_BLOCKERS.forEach(({ id, messageId, phrase }) => {
+            const blocker = document.getElementById(id);
+            if (!blocker) return;
+            blocker.addEventListener('click', (e) => {
+                e.preventDefault();
+                flashSimCardGuardMessage(messageId, line(phrase));
+            });
+        });
     }
 
     function addAfmEntry() {
@@ -628,6 +736,9 @@ document.addEventListener('DOMContentLoaded', function () {
         const entries = document.getElementById('distance-lock-entries');
         if (!entries) return;
         const idx = entries.querySelectorAll('.afm-entry').length + 1;
+        const stiffName = (typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? `dl-stiff-${crypto.randomUUID()}`
+            : `dl-stiff-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
         const entry = document.createElement('div');
         entry.className = 'afm-entry';
         entry.innerHTML =
@@ -642,25 +753,54 @@ document.addEventListener('DOMContentLoaded', function () {
                         <label>Residue B</label>
                         <input type="number" class="distance-lock-res2" min="0" value="1">
                     </div>
+                </div>
+                <div class="afm-row">
                     <div class="afm-field">
-                        <label>Target distance (Å)</label>
-                        <input type="number" class="distance-lock-r0" step="0.01" value="" placeholder="from PDB">
+                        <div class="label-with-help">
+                            <label>Target Cα–Cα distance (Å)</label>
+                            <button type="button" class="help-btn help-btn--inline" data-help="restraint_target_distance" aria-label="Help: target Cα–Cα distance">?</button>
+                        </div>
+                        <input type="number" class="distance-lock-r0" step="0.01" value="" placeholder="auto from PDB">
                     </div>
-                    <div class="afm-field distance-lock-k-field hidden">
-                        <label>Spring const (advanced)</label>
-                        <input type="number" class="distance-lock-k" step="0.1" value="4">
+                    <div class="afm-field distance-lock-spring-column">
+                        <label>Spring constant</label>
+                        <p class="param-description distance-lock-rigid-hint">
+                            <strong>Rigid:</strong> fixed automatically on the server (very high stiffness, Upside reduced units ≈ 120). Nothing to type here.
+                        </p>
+                        <div class="distance-lock-k-field hidden">
+                            <input type="number" class="distance-lock-k" step="0.1" value="4" aria-label="Spring constant for this pair (custom mode only)">
+                        </div>
+                    </div>
+                </div>
+                <div class="afm-row afm-row--distance-lock-stiff">
+                    <div class="afm-field afm-field--full">
+                        <label>This pair</label>
+                        <div class="distance-lock-stiffness-radios">
+                            <label class="checkbox-label">
+                                <input type="radio" class="distance-lock-stiff" name="${stiffName}" value="rigid" checked>
+                                <span>Rigid (disulfide-like)</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="radio" class="distance-lock-stiff" name="${stiffName}" value="custom">
+                                <span>Custom spring</span>
+                            </label>
+                        </div>
                     </div>
                 </div>
                 <button type="button" class="remove-distance-lock-btn">Remove pair</button>
             </div>`;
         entries.appendChild(entry);
         setupRemoveHandlers();
-        const rigidSg = document.getElementById('restraint-group-rigid-spring');
-        if (rigidSg) {
-            document.querySelectorAll('.distance-lock-k-field').forEach(el => {
-                el.classList.toggle('hidden', rigidSg.checked);
-            });
-        }
+        bindDistanceLockEntry(entry);
+        entry.querySelectorAll('[data-help]').forEach((btn) => {
+            if (btn.dataset.helpDlBound === '1') return;
+            btn.dataset.helpDlBound = '1';
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openHelpForKey(btn.getAttribute('data-help'));
+            }, true);
+        });
         updateConfigSummary();
     }
 
@@ -706,16 +846,26 @@ document.addEventListener('DOMContentLoaded', function () {
         const er = document.getElementById('enable-restraints');
         const edl = document.getElementById('enable-distance-locks');
         if (er && er.checked && edl && edl.checked) {
-            const n = readDistanceLockEntries().length;
-            if (n) {
-                const rig = document.getElementById('restraint-group-rigid-spring');
-                const stiff = rig && rig.checked ? 'rigid bridge' : 'custom stiffness';
-                summary += `\nRestraint groups: ${n} pair(s), ${stiff}`;
+            const locks = readDistanceLockEntries();
+            if (locks.length) {
+                const nRig = locks.filter(l => l.rigidSpring).length;
+                const nCust = locks.length - nRig;
+                summary += `\nRestraint groups: ${locks.length} pair(s) (${nRig} rigid, ${nCust} custom spring)`;
             }
         }
         const esp = document.getElementById('enable-spring-pair');
         if (er && er.checked && esp && esp.checked && springPairText && springPairText.value.trim()) {
             summary += '\nPair spring (manual table): enabled';
+        }
+        if (er && er.checked) {
+            const ewc = document.getElementById('enable-wall-const');
+            const ewp = document.getElementById('enable-wall-pair');
+            const esc = document.getElementById('enable-spring-const');
+            const enl = document.getElementById('enable-nail');
+            if (ewc && ewc.checked) summary += '\nFixed wall table: enabled';
+            if (ewp && ewp.checked) summary += '\nPair wall table: enabled';
+            if (esc && esc.checked) summary += '\nFixed spring table: enabled';
+            if (enl && enl.checked) summary += '\nNail table: enabled';
         }
         if (enableMembrane && enableMembrane.checked) {
             const mi = parseFloat(membraneInner.value);
@@ -908,6 +1058,26 @@ document.addEventListener('DOMContentLoaded', function () {
                 seen.add(k);
             }
         }
+
+        const erAll = document.getElementById('enable-restraints');
+        if (erAll && erAll.checked) {
+            const tableChecks = [
+                ['enable-wall-const', 'wall-const-text', 'Fixed wall'],
+                ['enable-wall-pair', 'wall-pair-text', 'Pair wall'],
+                ['enable-spring-const', 'spring-const-text', 'Fixed spring'],
+                ['enable-nail', 'nail-text', 'Nail'],
+            ];
+            for (let i = 0; i < tableChecks.length; i++) {
+                const cid = tableChecks[i][0];
+                const tid = tableChecks[i][1];
+                const label = tableChecks[i][2];
+                const c = document.getElementById(cid);
+                const t = document.getElementById(tid);
+                if (c && c.checked && t && !t.value.trim()) {
+                    return `${label} restraints are enabled but the data table is empty.`;
+                }
+            }
+        }
         return null;
     }
 
@@ -942,6 +1112,45 @@ document.addEventListener('DOMContentLoaded', function () {
         config.membraneCoordSystem = (membraneCoordSystem && membraneCoordSystem.value) || 'cartesian';
         config.membraneDisableRecentering = !!(disableRecentering && disableRecentering.checked);
         config.membraneDisableZRecentering = !!(disableZRecentering && disableZRecentering.checked);
+    }
+
+    function appendRestraintConfig(config) {
+        const er = document.getElementById('enable-restraints');
+        const edl = document.getElementById('enable-distance-locks');
+        if (er && er.checked && edl && edl.checked) {
+            const locks = readDistanceLockEntries();
+            if (locks.length) config.distanceLockPairs = locks;
+        }
+        const esp = document.getElementById('enable-spring-pair');
+        if (er && er.checked && esp && esp.checked && springPairText && springPairText.value.trim()) {
+            config.enablePairSpringText = true;
+            config.pairSpringText = springPairText.value.trim();
+        }
+        if (!er || !er.checked) return;
+        const ewc = document.getElementById('enable-wall-const');
+        const ewp = document.getElementById('enable-wall-pair');
+        const esc = document.getElementById('enable-spring-const');
+        const enl = document.getElementById('enable-nail');
+        const wct = document.getElementById('wall-const-text');
+        const wpt = document.getElementById('wall-pair-text');
+        const sct = document.getElementById('spring-const-text');
+        const nt = document.getElementById('nail-text');
+        if (ewc && ewc.checked) {
+            config.enableWallConst = true;
+            if (wct) config.wallConstText = wct.value;
+        }
+        if (ewp && ewp.checked) {
+            config.enableWallPair = true;
+            if (wpt) config.wallPairText = wpt.value;
+        }
+        if (esc && esc.checked) {
+            config.enableSpringConst = true;
+            if (sct) config.springConstText = sct.value;
+        }
+        if (enl && enl.checked) {
+            config.enableNail = true;
+            if (nt) config.nailText = nt.value;
+        }
     }
 
     // -------------------------------------------------------------------
@@ -1043,21 +1252,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 config.afmEntries = readAfmEntries();
             }
         }
-        const er = document.getElementById('enable-restraints');
-        const edl = document.getElementById('enable-distance-locks');
-        if (er && er.checked && edl && edl.checked) {
-            const locks = readDistanceLockEntries();
-            if (locks.length) {
-                config.distanceLockPairs = locks;
-                const rig = document.getElementById('restraint-group-rigid-spring');
-                config.restraintGroupRigidSpring = rig ? rig.checked : true;
-            }
-        }
-        const esp = document.getElementById('enable-spring-pair');
-        if (er && er.checked && esp && esp.checked && springPairText && springPairText.value.trim()) {
-            config.enablePairSpringText = true;
-            config.pairSpringText = springPairText.value.trim();
-        }
+        appendRestraintConfig(config);
         if (simMode && simMode.value === 'constant') {
             const ir = document.getElementById('basic-independent-replicas');
             let n = ir ? parseInt(ir.value, 10) : 1;
@@ -1108,6 +1303,7 @@ document.addEventListener('DOMContentLoaded', function () {
             pullResidue: parseInt(sweepPuller.value, 10),
         };
         appendMembraneConfig(config);
+        appendRestraintConfig(config);
         const formData = new FormData();
         formData.append('pdb', selectedFile);
         formData.append('config', JSON.stringify(config));
@@ -1153,12 +1349,17 @@ document.addEventListener('DOMContentLoaded', function () {
     function readDistanceLockEntries() {
         const root = document.getElementById('distance-lock-entries');
         if (!root) return [];
-        return Array.from(root.querySelectorAll('.afm-entry')).map(e => ({
-            res1: e.querySelector('.distance-lock-res1').value,
-            res2: e.querySelector('.distance-lock-res2').value,
-            distanceAngstrom: (e.querySelector('.distance-lock-r0') || {}).value ?? '',
-            springConst: (e.querySelector('.distance-lock-k') || {}).value || '4',
-        })).filter(p => {
+        return Array.from(root.querySelectorAll('.afm-entry')).map(e => {
+            const stiff = e.querySelector('input.distance-lock-stiff:checked');
+            const rigidSpring = !stiff || stiff.value !== 'custom';
+            return {
+                res1: e.querySelector('.distance-lock-res1').value,
+                res2: e.querySelector('.distance-lock-res2').value,
+                distanceAngstrom: (e.querySelector('.distance-lock-r0') || {}).value ?? '',
+                springConst: (e.querySelector('.distance-lock-k') || {}).value || '4',
+                rigidSpring,
+            };
+        }).filter(p => {
             const a = parseInt(p.res1, 10);
             const b = parseInt(p.res2, 10);
             return p.res1 !== '' && p.res2 !== '' && !Number.isNaN(a) && !Number.isNaN(b);
@@ -1168,17 +1369,6 @@ document.addEventListener('DOMContentLoaded', function () {
     // -------------------------------------------------------------------
     // Status polling
     // -------------------------------------------------------------------
-    let _timerInterval = null;
-    let _timerStart = null;
-    function startTimer() {
-        _timerStart = Date.now();
-        const el = document.getElementById('elapsed-time');
-        _timerInterval = setInterval(() => {
-            const s = ((Date.now() - _timerStart) / 1000).toFixed(1);
-            if (el) el.textContent = `Time: ${s}s`;
-        }, 50);
-    }
-    function stopTimer() { if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; } }
 
     function pollJobStatus(jobId) {
         currentJobId = jobId;

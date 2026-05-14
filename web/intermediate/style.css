@@ -503,8 +503,39 @@ h3.subsection-title {
 .card-content.disabled .add-btn,
 .card-content.disabled .remove-afm-btn,
 .card-content.disabled .remove-tension-btn,
+.card-content.disabled .remove-distance-lock-btn,
 .card-content.disabled .run-button {
     pointer-events: none;
+}
+
+/* Optional simulation cards: overlay when master toggle is off */
+.sim-card-interactive-stack {
+    position: relative;
+}
+
+.sim-card-guard-blocker {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    cursor: not-allowed;
+}
+
+.card-content.disabled > .sim-card-interactive-stack > .sim-card-guard-blocker {
+    display: block;
+}
+
+.sim-card-guard-message {
+    font-size: 0.8125rem;
+    color: #2b6cb0;
+    margin: 0 0 0.5rem 0;
+    min-height: 1.25em;
+    line-height: 1.35;
 }
 
 h3 {
@@ -815,7 +846,7 @@ input:where([type="text"], [type="email"], [type="number"], [type="password"], [
     background: #38a169;
 }
 
-.remove-afm-btn, .remove-wall-btn, .remove-wall-pair-btn, .remove-spring-const-btn, .remove-spring-pair-btn, .remove-nail-btn {
+.remove-afm-btn, .remove-wall-btn, .remove-wall-pair-btn, .remove-spring-const-btn, .remove-spring-pair-btn, .remove-nail-btn, .remove-distance-lock-btn {
     background: #e53e3e;
     color: white;
     border: none;
@@ -826,7 +857,7 @@ input:where([type="text"], [type="email"], [type="number"], [type="password"], [
     transition: background 0.2s ease;
 }
 
-.remove-afm-btn:hover, .remove-wall-btn:hover, .remove-wall-pair-btn:hover, .remove-spring-const-btn:hover, .remove-spring-pair-btn:hover, .remove-nail-btn:hover {
+.remove-afm-btn:hover, .remove-wall-btn:hover, .remove-wall-pair-btn:hover, .remove-spring-const-btn:hover, .remove-spring-pair-btn:hover, .remove-nail-btn:hover, .remove-distance-lock-btn:hover {
     background: #c53030;
 }
 
@@ -850,6 +881,45 @@ input:where([type="text"], [type="email"], [type="number"], [type="password"], [
 
 .restraint-entries {
     margin-top: 1rem;
+}
+
+.afm-row--distance-lock-stiff {
+    margin-top: 0.35rem;
+}
+
+.afm-field--full {
+    grid-column: 1 / -1;
+}
+
+.distance-lock-spring-column .distance-lock-k-field {
+    margin-top: 0;
+}
+
+.distance-lock-spring-column .distance-lock-k-field:not(.hidden) {
+    margin-top: 0.25rem;
+}
+
+.distance-lock-spring-column .distance-lock-rigid-hint {
+    margin: 0.35rem 0 0;
+    font-size: 0.88rem;
+    line-height: 1.4;
+}
+
+.distance-lock-stiffness-radios {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-top: 0.2rem;
+}
+
+.afm-field--full .distance-lock-stiffness-radios {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.25rem;
+}
+
+.distance-lock-stiffness-radios .checkbox-label {
+    margin-bottom: 0;
 }
 
 /* Run section */
@@ -1475,6 +1545,12 @@ input:where([type="text"], [type="email"], [type="number"], [type="password"], [
     gap: 1rem;
 }
 
+/* Distance-lock: spring block is not .afm-field; hide without fighting .afm-field flex */
+.distance-lock-k-field.hidden,
+.distance-lock-rigid-hint.hidden {
+    display: none !important;
+}
+
 .afm-field {
     display: flex;
     flex-direction: column;
@@ -1498,7 +1574,8 @@ input:where([type="text"], [type="email"], [type="number"], [type="password"], [
     text-align: center;
 }
 
-.afm-content .remove-afm-btn {
+.afm-content .remove-afm-btn,
+.afm-content .remove-distance-lock-btn {
     align-self: flex-start;
     margin-top: 0.5rem;
 }

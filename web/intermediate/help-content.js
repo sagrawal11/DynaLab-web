@@ -187,8 +187,13 @@ window.DYNALAB_HELP_CONTENT = {
   },
   "restraint_group_pairs": {
     "title": "Restraint groups (pairs)",
-    "overviewHtml": "<p>Each row is a <strong>pair</strong> of residues (0-based indices). The server writes a 3D harmonic spring between their Cα atoms with equilibrium distance from the field you set or, if blank, from your uploaded PDB.</p><p>With <strong>Rigid disulfide-like stiffness</strong> enabled (default), a high spring constant is applied automatically so the Cα–Cα distance barely moves—a coarse analog of a staple, not real cysteine chemistry.</p>",
-    "detailHtml": "<p>Uncheck rigid mode to expose per-row spring constants if you want a softer linker.</p><p>On multi-chain PDBs, indices follow the ordered list of Cα atoms in the file.</p>"
+    "overviewHtml": "<p><strong>Enable pair restraint groups</strong> adds one row per Cα–Cα harmonic spring (Upside <code>pair_spring</code>). Residue indices are 0-based (ordered Cα in your PDB).</p><p>Each row has its own <strong>This pair</strong> choice: <em>Rigid (disulfide-like)</em> uses an automatic very high spring constant so that pair barely moves; <em>Custom spring</em> lets you type a spring constant for a softer linker.</p>",
+    "detailHtml": "<p>Use the <strong>?</strong> next to target distance for when to leave it blank vs set a number. Different pairs can mix rigid and custom in the same job.</p><p>On multi-chain PDBs, indices follow the ordered list of Cα atoms in the file.</p>"
+  },
+  "restraint_target_distance": {
+    "title": "Target Cα–Cα distance",
+    "overviewHtml": "<p>This is the <strong>equilibrium length</strong> of the harmonic spring between the two residues—not how you “enable” the pair.</p>",
+    "detailHtml": "<p><strong>Recommended:</strong> leave the field <strong>blank</strong>. The server then sets the target to the Cα–Cα distance in your <strong>uploaded PDB</strong>, so the restraint starts neutral—like pinning the pair near the structure you loaded.</p><p><strong>Optional override:</strong> enter a distance in Å if you want the spring to favor a <em>different</em> separation (for example slightly shorter to gently pull the pair closer together, or a design geometry). Wrong values can add large forces, so change with intent.</p>"
   },
   "restraint_nail": {
     "title": "Nail restraint",

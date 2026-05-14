@@ -296,9 +296,15 @@ def _write_pair_spring_dat(job_dir: Path, config: dict) -> str | None:
             continue
         if r1 == r2:
             raise ValueError(f"Distance lock: residue indices must differ (got {r1}, {r2}).")
-        rigid = config.get("restraintGroupRigidSpring")
-        if rigid is None:
-            rigid = True
+        # Per-pair rigidSpring (preferred); else legacy global restraintGroupRigidSpring.
+        per_rigid = p.get("rigidSpring")
+        if per_rigid is None:
+            rigid = config.get("restraintGroupRigidSpring")
+            if rigid is None:
+                rigid = True
+            rigid = bool(rigid)
+        else:
+            rigid = bool(per_rigid)
         if rigid:
             spring = RIGID_PAIR_SPRING_CONST
         else:
@@ -330,6 +336,42 @@ def _write_pair_spring_dat(job_dir: Path, config: dict) -> str | None:
             return PAIR_SPRING_FILENAME
 
     return None
+
+
+def _write_restraint_sidecar_tables(job_dir: Path, config: dict) -> None:
+    """Write optional fixed wall / pair wall / fixed spring / nail tables for ``web_restraints``."""
+    specs = (
+        ("enableWallConst", "wallConstText", "restraint-fixed-wall.dat"),
+        ("enableWallPair", "wallPairText", "restraint-pair-wall.dat"),
+        ("enableSpringConst", "springConstText", "restraint-fixed-spring.dat"),
+        ("enableNail", "nailText", "restraint-nail.dat"),
+    )
+    for en_key, text_key, fname in specs:
+        path = job_dir / fname
+        on = bool(config.get(en_key))
+        raw = str(config.get(text_key) or "").strip()
+        if on and raw:
+            if not raw.endswith("\n"):
+                raw += "\n"
+            path.write_text(raw)
+        elif path.exists():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+def _validate_restraint_table_flags(config: dict) -> None:
+    """Require non-empty tables when a restraint textarea option is enabled."""
+    specs = (
+        ("enableWallConst", "wallConstText", "Fixed wall"),
+        ("enableWallPair", "wallPairText", "Pair wall"),
+        ("enableSpringConst", "springConstText", "Fixed spring"),
+        ("enableNail", "nailText", "Nail"),
+    )
+    for en_key, text_key, label in specs:
+        if bool(config.get(en_key)) and not str(config.get(text_key) or "").strip():
+            raise ValueError(f"{label} restraints are enabled but the data table is empty.")
 
 
 def _canonical_pair_int(i: int, j: int) -> tuple[int, int]:
@@ -377,11 +419,10 @@ def _validate_membrane_fields(config: dict) -> None:
         raise ValueError("membraneCoordSystem must be 'cartesian' or 'spherical'.")
 
 
-def _validate_single_job_config(job_dir: Path, config: dict) -> None:
-    """Reject inconsistent configs before spawning Upside (also enforced in the UI)."""
+def _validate_restraints_and_pair_spring(job_dir: Path, config: dict) -> None:
+    """Validate distance locks, manual pair spring text, and optional wall/nail tables."""
     pdb_path = job_dir / "input.pdb"
-
-    _validate_membrane_fields(config)
+    locks = config.get("distanceLockPairs")
     if locks is not None and not isinstance(locks, list):
         raise ValueError("distanceLockPairs must be a list when provided.")
     locks = locks or []
@@ -460,6 +501,14 @@ def _validate_single_job_config(job_dir: Path, config: dict) -> None:
                         f"Manual pair spring: indices {a}, {b} are out of range for this PDB "
                         f"(valid 0..{n - 1})."
                     )
+
+    _validate_restraint_table_flags(config)
+
+
+def _validate_single_job_config(job_dir: Path, config: dict) -> None:
+    """Reject inconsistent configs before spawning Upside (also enforced in the UI)."""
+    _validate_membrane_fields(config)
+    _validate_restraints_and_pair_spring(job_dir, config)
 
     if not config.get("enablePulling"):
         return
@@ -706,6 +755,7 @@ def _build_simulation_command(job_dir: Path, config: dict) -> tuple:
     temperature = str(config.get("temperature", 0.85))
 
     restraint_arg = _write_pair_spring_dat(job_dir, config) or "None"
+    _write_restraint_sidecar_tables(job_dir, config)
 
     # Constant-tension mode (centrifuge analog)
     tension_entries = config.get("tensionEntries") or []
@@ -1104,6 +1154,14 @@ def submit_sweep():
     _init_job_layout(job_dir)
     pdb_file.save(job_dir / "input.pdb")
     (job_dir / "config.json").write_text(json.dumps(config, indent=2))
+
+    try:
+        _validate_restraints_and_pair_spring(job_dir, config)
+    except ValueError as exc:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        return jsonify({"error": str(exc)}), 400
+    _write_pair_spring_dat(job_dir, config)
+    _write_restraint_sidecar_tables(job_dir, config)
 
     sweep_id = uuid.uuid4().hex[:6]
     _write_status(

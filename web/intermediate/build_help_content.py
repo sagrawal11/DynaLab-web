@@ -484,14 +484,23 @@ def main() -> None:
     out["restraint_group_pairs"] = E(
         "Restraint groups (pairs)",
         md_p(
-            "Each row is a <strong>pair</strong> of residues (0-based indices). The server writes a 3D harmonic spring between their Cα atoms with equilibrium distance "
-            "from the field you set or, if blank, from your uploaded PDB.",
-            "With <strong>Rigid disulfide-like stiffness</strong> enabled (default), a high spring constant is applied automatically so the Cα–Cα distance barely moves—"
-            "a coarse analog of a staple, not real cysteine chemistry.",
+            "<strong>Enable pair restraint groups</strong> adds one row per Cα–Cα harmonic spring (Upside <code>pair_spring</code>). Residue indices are 0-based (ordered Cα in your PDB).",
+            "Each row has its own <strong>This pair</strong> choice: <em>Rigid (disulfide-like)</em> uses an automatic very high spring constant so that pair barely moves; <em>Custom spring</em> lets you type a spring constant for a softer linker.",
         ),
         md_p(
-            "Uncheck rigid mode to expose per-row spring constants if you want a softer linker.",
+            "Use the <strong>?</strong> next to target distance for when to leave it blank vs set a number. Different pairs can mix rigid and custom in the same job.",
             "On multi-chain PDBs, indices follow the ordered list of Cα atoms in the file.",
+        ),
+    )
+
+    out["restraint_target_distance"] = E(
+        "Target Cα–Cα distance",
+        md_p(
+            "This is the <strong>equilibrium length</strong> of the harmonic spring between the two residues—not how you “enable” the pair.",
+        ),
+        md_p(
+            "<strong>Recommended:</strong> leave the field <strong>blank</strong>. The server then sets the target to the Cα–Cα distance in your <strong>uploaded PDB</strong>, so the restraint starts neutral—like pinning the pair near the structure you loaded.",
+            "<strong>Optional override:</strong> enter a distance in Å if you want the spring to favor a <em>different</em> separation (for example slightly shorter to gently pull the pair closer together, or a design geometry). Wrong values can add large forces, so change with intent.",
         ),
     )
 

@@ -8,10 +8,12 @@ server.
 
 For each requested force value, the orchestrator:
   1. Creates ``<sweep-dir>/F_<pn>_rep_<i>/`` and copies the input PDB into it.
-  2. Writes the matching ``Tension_Simulations.dat`` (constant-tension) or
+  2. Copies ``spring-pair-xyz.dat`` and optional ``restraint-*.dat`` sidecars from the
+     directory containing the input PDB (the web job root) when present.
+  3. Writes the matching ``Tension_Simulations.dat`` (constant-tension) or
      ``Velocity_Simulations.dat`` (velocity-clamp) inside that directory.
-  3. Spawns ``Pulling_Simulations.py`` as a subprocess in that directory.
-  4. Updates ``<sweep-dir>/manifest.json`` with status as each sub-job finishes.
+  4. Spawns ``Pulling_Simulations.py`` as a subprocess in that directory.
+  5. Updates ``<sweep-dir>/manifest.json`` with status as each sub-job finishes.
 
 Concurrency: at most ``cpu_count() // 2`` sub-jobs run simultaneously, so the
 host stays responsive. Override with ``--max-parallel``.
@@ -51,6 +53,27 @@ from pathlib import Path
 
 
 _MANIFEST_LOCK = threading.Lock()
+
+# Filenames written by the web server into the parent job directory (see ``web/server/app.py``).
+_PAIR_SPRING_FILENAME = "spring-pair-xyz.dat"
+_RESTRAINT_SIDECAR_FILENAMES = (
+    "restraint-fixed-wall.dat",
+    "restraint-pair-wall.dat",
+    "restraint-fixed-spring.dat",
+    "restraint-nail.dat",
+)
+
+
+def _restraint_argv_for_subjob(job_root: Path, sub_dir: Path) -> str:
+    """Copy pair spring + optional restraint sidecars into ``sub_dir`` for ``Pulling_Simulations``."""
+    for fname in (_PAIR_SPRING_FILENAME, *_RESTRAINT_SIDECAR_FILENAMES):
+        src = job_root / fname
+        if src.is_file() and src.stat().st_size > 0:
+            shutil.copy2(src, sub_dir / fname)
+    pair_dst = sub_dir / _PAIR_SPRING_FILENAME
+    if pair_dst.is_file() and pair_dst.stat().st_size > 0:
+        return _PAIR_SPRING_FILENAME
+    return "None"
 
 
 def _read_calibration_factor(upside_home: Path) -> float:
@@ -142,12 +165,14 @@ def _run_one(
     if not pdb_target.exists():
         shutil.copy(pdb_path, pdb_target)
 
+    restraint_arg = _restraint_argv_for_subjob(pdb_path.parent, sub_dir)
+
     cmd = [
         sys.executable,
         str(upside_home / "start" / "Pulling_Simulations.py"),
         "input", str(sub_dir), "sim",
         str(duration), str(frame_interval), sim_type, "False",
-        f"{temperature}", "None",
+        f"{temperature}", restraint_arg,
     ]
 
     log_file = sub_dir / "sim.log"

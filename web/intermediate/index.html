@@ -252,7 +252,7 @@
                     <div id="simulation-compatibility-panel" class="simulation-compatibility-panel" aria-label="Simulation compatibility rules">
                         <h3 class="subsection-title">What can be combined?</h3>
                         <ul class="simulation-rules-list">
-                            <li><strong>Replica exchange</strong> — temperature ladder only. Pulling and force sweep are <em>not</em> supported (not wired in this workflow). Membrane and pair restraints are OK.</li>
+                            <li><strong>Replica exchange</strong> — temperature ladder only. Pulling and force sweep are <em>not</em> supported (not wired in this workflow). Membrane and restraints (pair groups, pair spring, wall/spring/nail tables) are OK.</li>
                             <li><strong>Constant temperature</strong> — You may use membrane, restraints, and either <strong>single-job pulling</strong> <em>or</em> <strong>force sweep</strong>, but not both (each defines how the system is pulled).</li>
                             <li><strong>Membrane</strong> — Compatible with constant-T, replica exchange, single-job pulling, and force sweeps (same slab settings apply to each sub-job).</li>
                             <li><strong>Independent replicas</strong> (card 3) — Only for constant-T single runs, not with force sweep (a sweep job uses its own replica count per force).</li>
@@ -276,6 +276,9 @@
                     </label>
                 </div>
                 <div class="card-content" id="pulling-content">
+                    <p id="pulling-guard-message" class="sim-card-guard-message hidden" role="status" aria-live="polite"></p>
+                    <div class="sim-card-interactive-stack">
+                    <div id="pulling-interactive-root">
                     <div class="config-grid">
                         <div class="config-group">
                             <div class="label-with-help">
@@ -375,6 +378,9 @@
                         </div>
                         <button type="button" id="add-tension-btn" class="add-btn">Add Tension Point</button>
                     </div>
+                    </div>
+                    <button type="button" class="sim-card-guard-blocker" id="pulling-guard-blocker" tabindex="-1" aria-label="Turn on Enable Pulling in the card header to edit these options"></button>
+                    </div>
                 </div>
             </div>
 
@@ -395,6 +401,9 @@
                         Run the same simulation at N forces in parallel and roll up
                         cryptic-epitope candidates. Replaces single pulling jobs when enabled.
                     </p>
+                    <p id="sweep-guard-message" class="sim-card-guard-message hidden" role="status" aria-live="polite"></p>
+                    <div class="sim-card-interactive-stack">
+                    <div id="sweep-interactive-root">
                     <div class="config-grid">
                         <div class="config-group">
                             <div class="label-with-help">
@@ -451,6 +460,9 @@
                         </button>
                         <div id="sweep-analysis-results" class="analysis-results analysis-results--stacked"></div>
                     </div>
+                    </div>
+                    <button type="button" class="sim-card-guard-blocker" id="sweep-guard-blocker" tabindex="-1" aria-label="Turn on Enable Sweep in the card header to edit these options"></button>
+                    </div>
                 </div>
             </div>
 
@@ -474,6 +486,9 @@
                         (via the job config). Thickness is <code>outer − inner</code> (Å). Spherical uses Upside
                         membrane curvature flags; coordinate the PDB orientation with your choice here.
                     </p>
+                    <p id="membrane-guard-message" class="sim-card-guard-message hidden" role="status" aria-live="polite"></p>
+                    <div class="sim-card-interactive-stack">
+                    <div id="membrane-interactive-root">
                     <div class="config-grid">
                         <div class="config-group">
                             <div class="label-with-help">
@@ -534,6 +549,9 @@
                             </div>
                         </div>
                     </div>
+                    </div>
+                    <button type="button" class="sim-card-guard-blocker" id="membrane-guard-blocker" tabindex="-1" aria-label="Turn on Enable Membrane in the card header to edit these options"></button>
+                    </div>
                 </div>
             </div>
 
@@ -551,30 +569,25 @@
                 </div>
                 <div class="card-content" id="restraints-content">
                     <p class="param-description" style="margin-bottom: 0.75rem;">
-                        <strong>Web run:</strong> pair restraint groups (distance locks) and manual pair-spring text are sent to the server.
-                        Fixed wall, pair wall, fixed spring, and nail tables below are not wired through the API yet.
+                        <strong>Web run:</strong> pair restraint groups (distance locks), manual pair-spring text, and the optional tables below (fixed wall, pair wall, fixed spring, nail) are written into your job directory and passed into Upside prep when enabled with non-empty text.
                     </p>
-                    <div class="restraint-types">
+                    <p id="restraints-guard-message" class="sim-card-guard-message hidden" role="status" aria-live="polite"></p>
+                    <div class="sim-card-interactive-stack">
+                    <div class="restraint-types" id="restraints-interactive-root">
                         <div class="restraint-section">
                             <h3 class="subsection-title">Restraint groups (pairs)
                                 <button type="button" class="help-btn help-btn--inline" data-help="restraint_group_pairs" aria-label="Help: pair restraint groups">?</button>
                             </h3>
                             <p class="param-description">
-                                Each row is exactly <strong>two residues</strong> linked by a harmonic Cα–Cα spring (Upside
-                                <code>pair_spring</code>)—a coarse analog of a disulfide bridge, not real cysteine chemistry.
-                                Indices are <strong>0-based</strong>. Leave target distance empty to use the separation in your uploaded PDB.
+                                <strong>Enable pair restraint groups</strong>, then add one row per Cα–Cα pair (Upside
+                                <code>pair_spring</code>)—a coarse mechanical linker, not real disulfide chemistry.
+                                Residue indices are <strong>0-based</strong> (ordered Cα in your PDB).
+                                For each pair, choose <strong>rigid</strong> (auto stiff spring) or <strong>custom spring</strong> (you set the constant).
                             </p>
                             <label class="checkbox-label">
                                 <input type="checkbox" id="enable-distance-locks">
                                 <span>Enable pair restraint groups</span>
                             </label>
-                            <label class="checkbox-label" style="margin-top: 0.35rem;">
-                                <input type="checkbox" id="restraint-group-rigid-spring" checked>
-                                <span>Rigid disulfide-like stiffness (auto; recommended)</span>
-                            </label>
-                            <p class="param-description" id="restraint-group-rigid-note" style="margin-top: 0.25rem;">
-                                Uses a high spring constant so the pair stays near its target distance. Uncheck to set stiffness per row.
-                            </p>
                             <div id="distance-lock-entries" class="restraint-entries hidden">
                                 <div class="afm-entry">
                                     <div class="afm-entry-header"><h4>Pair 1</h4></div>
@@ -588,13 +601,38 @@
                                                 <label>Residue B</label>
                                                 <input type="number" class="distance-lock-res2" min="0" value="1">
                                             </div>
+                                        </div>
+                                        <div class="afm-row">
                                             <div class="afm-field">
-                                                <label>Target distance (Å)</label>
-                                                <input type="number" class="distance-lock-r0" step="0.01" value="" placeholder="from PDB">
+                                                <div class="label-with-help">
+                                                    <label>Target Cα–Cα distance (Å)</label>
+                                                    <button type="button" class="help-btn help-btn--inline" data-help="restraint_target_distance" aria-label="Help: target Cα–Cα distance">?</button>
+                                                </div>
+                                                <input type="number" class="distance-lock-r0" step="0.01" value="" placeholder="auto from PDB">
                                             </div>
-                                            <div class="afm-field distance-lock-k-field hidden">
-                                                <label>Spring const (advanced)</label>
-                                                <input type="number" class="distance-lock-k" step="0.1" value="4">
+                                            <div class="afm-field distance-lock-spring-column">
+                                                <label>Spring constant</label>
+                                                <p class="param-description distance-lock-rigid-hint">
+                                                    <strong>Rigid:</strong> fixed automatically on the server (very high stiffness, Upside reduced units ≈ 120). Nothing to type here.
+                                                </p>
+                                                <div class="distance-lock-k-field hidden">
+                                                    <input type="number" class="distance-lock-k" step="0.1" value="4" aria-label="Spring constant for this pair (custom mode only)">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="afm-row afm-row--distance-lock-stiff">
+                                            <div class="afm-field afm-field--full">
+                                                <label>This pair</label>
+                                                <div class="distance-lock-stiffness-radios">
+                                                    <label class="checkbox-label">
+                                                        <input type="radio" class="distance-lock-stiff" name="dl-stiff-seed-1" value="rigid" checked>
+                                                        <span>Rigid (disulfide-like)</span>
+                                                    </label>
+                                                    <label class="checkbox-label">
+                                                        <input type="radio" class="distance-lock-stiff" name="dl-stiff-seed-1" value="custom">
+                                                        <span>Custom spring</span>
+                                                    </label>
+                                                </div>
                                             </div>
                                         </div>
                                         <button type="button" class="remove-distance-lock-btn">Remove pair</button>
@@ -609,12 +647,12 @@
                                 <button type="button" class="help-btn help-btn--inline" data-help="restraint_fixed_wall" aria-label="Help: fixed wall">?</button>
                             </h3>
                             <label class="checkbox-label">
-                                <input type="checkbox" id="enable-wall-const" disabled aria-disabled="true" title="Not wired in the web server yet">
+                                <input type="checkbox" id="enable-wall-const">
                                 <span>Enable Fixed Wall</span>
                             </label>
                             <div id="wall-const-entries" class="restraint-text-area hidden">
                                 <label for="wall-const-text">Fixed Wall Data (residue radius spring_const wall_type x0 y0 z0)</label>
-                                <textarea id="wall-const-text" rows="4" placeholder="0 5.0 4.0 1 0 0 0&#10;5 10.0 4.0 1 0 0 8" disabled aria-disabled="true"></textarea>
+                                <textarea id="wall-const-text" rows="4" placeholder="0 5.0 4.0 1 0 0 0&#10;5 10.0 4.0 1 0 0 8"></textarea>
                                 <p class="param-description">Format: residue radius spring_const wall_type x0 y0 z0 (one per line)</p>
                             </div>
                         </div>
@@ -624,12 +662,12 @@
                                 <button type="button" class="help-btn help-btn--inline" data-help="restraint_pair_wall" aria-label="Help: pair wall">?</button>
                             </h3>
                             <label class="checkbox-label">
-                                <input type="checkbox" id="enable-wall-pair" disabled aria-disabled="true" title="Not wired in the web server yet">
+                                <input type="checkbox" id="enable-wall-pair">
                                 <span>Enable Pair Wall</span>
                             </label>
                             <div id="wall-pair-entries" class="restraint-text-area hidden">
                                 <label for="wall-pair-text">Pair Wall Data (residue1 residue2 radius spring_const)</label>
-                                <textarea id="wall-pair-text" rows="4" placeholder="4 26 8.0 4.0" disabled aria-disabled="true"></textarea>
+                                <textarea id="wall-pair-text" rows="4" placeholder="4 26 8.0 4.0"></textarea>
                                 <p class="param-description">Format: residue1 residue2 radius spring_const (one per line)</p>
                             </div>
                         </div>
@@ -639,12 +677,12 @@
                                 <button type="button" class="help-btn help-btn--inline" data-help="restraint_fixed_spring" aria-label="Help: fixed spring">?</button>
                             </h3>
                             <label class="checkbox-label">
-                                <input type="checkbox" id="enable-spring-const" disabled aria-disabled="true" title="Not wired in the web server yet">
+                                <input type="checkbox" id="enable-spring-const">
                                 <span>Enable Fixed Spring</span>
                             </label>
                             <div id="spring-const-entries" class="restraint-text-area hidden">
                                 <label for="spring-const-text">Fixed Spring Data (residue spring_const x0 y0 z0)</label>
-                                <textarea id="spring-const-text" rows="4" placeholder="0 4.0 0 0 0" disabled aria-disabled="true"></textarea>
+                                <textarea id="spring-const-text" rows="4" placeholder="0 4.0 0 0 0"></textarea>
                                 <p class="param-description">Format: residue spring_const x0 y0 z0 (one per line)</p>
                             </div>
                         </div>
@@ -669,15 +707,17 @@
                                 <button type="button" class="help-btn help-btn--inline" data-help="restraint_nail" aria-label="Help: nail restraint">?</button>
                             </h3>
                             <label class="checkbox-label">
-                                <input type="checkbox" id="enable-nail" disabled aria-disabled="true" title="Not wired in the web server yet">
+                                <input type="checkbox" id="enable-nail">
                                 <span>Enable Nail Restraint</span>
                             </label>
                             <div id="nail-entries" class="restraint-text-area hidden">
                                 <label for="nail-text">Nail Data (residue spring_const)</label>
-                                <textarea id="nail-text" rows="4" placeholder="0 4.0" disabled aria-disabled="true"></textarea>
+                                <textarea id="nail-text" rows="4" placeholder="0 4.0"></textarea>
                                 <p class="param-description">Format: residue spring_const (one per line)</p>
                             </div>
                         </div>
+                    </div>
+                    <button type="button" class="sim-card-guard-blocker" id="restraints-guard-blocker" tabindex="-1" aria-label="Turn on Enable Restraints in the card header to edit these options"></button>
                     </div>
                 </div>
             </div>

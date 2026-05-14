@@ -10,6 +10,11 @@ upside_utils_dir = os.path.expanduser(upside_path + "/py")
 sys.path.insert(0, upside_utils_dir)
 import run_upside as ru
 
+_start_dir = os.path.dirname(os.path.abspath(__file__))
+if _start_dir not in sys.path:
+    sys.path.insert(0, _start_dir)
+import web_restraints as _wr  # noqa: E402
+
 # ----------------------------------------------------------------------
 ## General Settings and Path
 # ----------------------------------------------------------------------
@@ -156,6 +161,7 @@ if not continue_sim:
         print("sim_type must be either 'velocity' or 'tension'")
         raise ValueError("sim_type must be either 'pulling' or 'tension'")
 
+    kwargs.update(_wr.extra_restraint_kwargs(pdb_dir))
     if restraints and str(restraints).lower() not in ("none", ""):
         kwargs["pair_spring"] = restraints
 

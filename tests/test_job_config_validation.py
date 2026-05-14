@@ -63,6 +63,22 @@ def test_accepts_valid_locks(job_dir):
     flask_app._validate_single_job_config(job_dir, cfg)
 
 
+def test_write_pair_spring_mixed_per_pair_rigid(job_dir):
+    cfg = {
+        "distanceLockPairs": [
+            {"res1": 0, "res2": 1, "distanceAngstrom": "", "rigidSpring": True, "springConst": "99"},
+            {"res1": 1, "res2": 2, "distanceAngstrom": "", "rigidSpring": False, "springConst": "2.5"},
+        ],
+    }
+    fn = flask_app._write_pair_spring_dat(job_dir, cfg)
+    assert fn == flask_app.PAIR_SPRING_FILENAME
+    body = (job_dir / flask_app.PAIR_SPRING_FILENAME).read_text().strip().splitlines()
+    data_lines = [ln for ln in body[1:] if ln.strip()]
+    assert len(data_lines) == 2
+    assert data_lines[0].endswith(f" {flask_app.RIGID_PAIR_SPRING_CONST:g}")
+    assert data_lines[1].endswith(" 2.5")
+
+
 def test_rejects_duplicate_manual_pair_lines(job_dir):
     cfg = {
         "enablePairSpringText": True,
@@ -70,6 +86,25 @@ def test_rejects_duplicate_manual_pair_lines(job_dir):
     }
     with pytest.raises(ValueError, match="Duplicate manual"):
         flask_app._validate_single_job_config(job_dir, cfg)
+
+
+def test_rejects_fixed_wall_enabled_empty_table(job_dir):
+    cfg = {"enableWallConst": True, "wallConstText": "  \n"}
+    with pytest.raises(ValueError, match="Fixed wall"):
+        flask_app._validate_restraints_and_pair_spring(job_dir, cfg)
+
+
+def test_write_restraint_sidecar_when_enabled(job_dir):
+    cfg = {
+        "enableWallConst": True,
+        "wallConstText": "0 5.0 4.0 1 0 0 0\n",
+        "enableNail": True,
+        "nailText": "1 2.0\n",
+    }
+    flask_app._write_restraint_sidecar_tables(job_dir, cfg)
+    assert (job_dir / "restraint-fixed-wall.dat").read_text().strip() == "0 5.0 4.0 1 0 0 0"
+    assert (job_dir / "restraint-nail.dat").read_text().strip() == "1 2.0"
+    assert not (job_dir / "restraint-pair-wall.dat").exists()
 
 
 def test_rejects_duplicate_afm_residues(job_dir):

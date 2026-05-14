@@ -123,6 +123,7 @@ _script_dir = os.path.dirname(os.path.abspath(__file__))
 if _script_dir not in sys.path:
     sys.path.insert(0, _script_dir)
 import web_membrane as _wm  # noqa: E402
+import web_restraints as _wr  # noqa: E402
 
 _job_cfg = _wm.find_dynalab_config(pdb_dir)
 _rc_flags = _wm.upside_recentering_flags(_job_cfg)
@@ -155,6 +156,7 @@ print("Config commandline options:")
 print(config_stdout)
 
 adv_kwargs: dict = {}
+adv_kwargs.update(_wr.extra_restraint_kwargs(pdb_dir))
 if restraints and str(restraints).lower() not in ("none", ""):
     adv_kwargs["pair_spring"] = restraints
 config_stdout = ru.advanced_config(config_base, **adv_kwargs)
