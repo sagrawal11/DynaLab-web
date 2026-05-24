@@ -107,17 +107,14 @@ def _resolve_pull_residue(pdb_path: Path, pull_residue: int) -> int:
     """Translate ``pull_residue=-1`` into the last residue index of the PDB."""
     if pull_residue >= 0:
         return pull_residue
-    last = -1
+    ca_count = 0
     for line in pdb_path.read_text().splitlines():
         if line.startswith(("ATOM ", "HETATM")) and line[12:16].strip() == "CA":
-            try:
-                last = int(line[22:26])
-            except ValueError:
-                continue
-    if last < 0:
+            ca_count += 1
+    if ca_count == 0:
         raise RuntimeError(f"Could not determine last CA residue in {pdb_path}")
     # Upside scripts use 0-based residue indexing.
-    return last - 1
+    return ca_count - 1
 
 
 def _write_tension_dat(out_dir: Path, anchor: int, puller: int, force_upside: float) -> None:
