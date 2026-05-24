@@ -1,0 +1,5 @@
+results/
+proteins/*.pdb
+aws/.last_instance.env
+aws/.last_instance.env.terminated.*
+scripts/__pycache__/

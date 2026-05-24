@@ -1,0 +1,29 @@
+{
+  "_notes": "Approximate us-east-1 prices. Verify with the live AWS Pricing Calculator before quoting numbers externally. Spot prices fluctuate; treat them as a floor.",
+  "_last_updated": "2026-05",
+
+  "us-east-1": {
+    "c7i.xlarge":  {"vcpu": 4,  "ram_gib": 8,   "on_demand_per_hour": 0.179, "spot_per_hour": 0.055},
+    "c7i.2xlarge": {"vcpu": 8,  "ram_gib": 16,  "on_demand_per_hour": 0.357, "spot_per_hour": 0.110},
+    "c7i.4xlarge": {"vcpu": 16, "ram_gib": 32,  "on_demand_per_hour": 0.714, "spot_per_hour": 0.220},
+    "c7i.8xlarge": {"vcpu": 32, "ram_gib": 64,  "on_demand_per_hour": 1.428, "spot_per_hour": 0.440},
+    "c6a.4xlarge": {"vcpu": 16, "ram_gib": 32,  "on_demand_per_hour": 0.612, "spot_per_hour": 0.180},
+    "c6i.4xlarge": {"vcpu": 16, "ram_gib": 32,  "on_demand_per_hour": 0.680, "spot_per_hour": 0.200},
+    "c6i.8xlarge": {"vcpu": 32, "ram_gib": 64,  "on_demand_per_hour": 1.360, "spot_per_hour": 0.410},
+    "t3.small":    {"vcpu": 2,  "ram_gib": 2,   "on_demand_per_hour": 0.0208, "spot_per_hour": 0.0062}
+  },
+
+  "storage": {
+    "ebs_gp3_per_gb_month": 0.08,
+    "ebs_gp3_per_gb_month_notes": "First 3000 IOPS and 125 MB/s included. Above that, extra IOPS / throughput are billed separately.",
+    "s3_standard_per_gb_month": 0.023,
+    "s3_request_per_1000_put": 0.005,
+    "s3_request_per_1000_get": 0.0004
+  },
+
+  "data_transfer": {
+    "egress_per_gb_to_internet_first_10_tb": 0.09,
+    "egress_per_gb_within_region_az_to_az": 0.01,
+    "ingress_per_gb": 0.0
+  }
+}
