@@ -98,10 +98,21 @@ export UPSIDE_HOME=/workspaces/DynaLab-merge-dynalab
 export PYTHONPATH=\"\$UPSIDE_HOME/py:\$PYTHONPATH\"
 export PATH=\"\$UPSIDE_HOME/py:\$UPSIDE_HOME/obj:\$PATH\"
 
-# (Re)build Upside in the DynaLab tree if missing.
+# (Re)build Upside in the mounted tree if missing.
+# obj/ is gitignored and rsync typically skips it — install.sh must create it.
 if [[ ! -x obj/upside ]]; then
     echo '[bootstrap] building Upside in the mounted tree...'
-    sudo ./install.sh
+    mkdir -p obj
+    if ! sudo ./install.sh; then
+        echo '[bootstrap] ERROR: install.sh failed — cannot run benchmarks without obj/upside.' >&2
+        exit 1
+    fi
+    if [[ ! -x obj/upside ]]; then
+        echo '[bootstrap] ERROR: obj/upside still missing after install.sh.' >&2
+        exit 1
+    fi
+    echo '[bootstrap] Upside build OK'
+    ls -lh obj/upside obj/libupside.so
 fi
 
 # Fetch any extra PDBs that the matrix references but aren't in example/.

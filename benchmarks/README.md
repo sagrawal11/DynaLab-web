@@ -3,61 +3,121 @@
 This folder contains everything you need to:
 
 1. Measure how DynaLab simulations perform (wall time, CPU usage, memory, output size).
-2. Convert those measurements into AWS dollar cost.
-3. Run the same benchmark on AWS so the report is defensible.
+2. Convert those measurements into AWS dollar cost projections.
+3. Run the same benchmark on a real EC2 instance so the report is defensible.
 
 The plan, in plain English:
 
-> Run a small but representative set of simulations both on your laptop (to make sure
-> nothing is broken) and on a single AWS EC2 instance (to get real numbers).
-> Then a script turns those numbers into a cost table you can hand to a stakeholder.
+> Run a small validation suite in your dev container (Phases 1–2), then run a
+> representative benchmark matrix on one EC2 box (Phase 3). A script turns the
+> raw timings into a cost table you can hand to a stakeholder.
 
-You do **not** need AWS Batch, Terraform, ECR, or any other heavy infrastructure to do this.
-One EC2 box is enough. Once you have numbers, you can decide whether Batch is worth the work.
+You do **not** need AWS Batch, Terraform, or ECR for this kit. One EC2 instance
+is enough. Once you have numbers, you can decide whether Batch is worth building.
 
 ---
 
-## What you will get at the end
+## Table of contents
 
-- `benchmarks/results/<run_id>/<case_id>/result.json` — raw metrics for each case.
-- `benchmarks/results/<run_id>/results.csv` — every case in one table.
-- `benchmarks/results/<run_id>/report.md` — a human-readable cost report.
+1. [Where to run each command](#where-to-run-each-command)
+2. [What you get at the end](#what-you-get-at-the-end)
+3. [Folder layout](#folder-layout)
+4. [Do I need to provide PDB files?](#do-i-need-to-provide-pdb-files)
+5. [Phase 1 — Local smoke test](#phase-1--local-smoke-test)
+6. [Phase 2 — Local mini matrix](#phase-2--local-mini-matrix)
+7. [Phase 3 — AWS full matrix](#phase-3--aws-full-matrix)
+8. [How to read the report](#how-to-read-the-report)
+9. [Matrix reference](#matrix-reference)
+10. [Cost model](#cost-model)
+11. [Troubleshooting](#troubleshooting)
+12. [What this kit does NOT do](#what-this-kit-does-not-do)
 
-`report.md` is the deliverable. It looks like:
+---
+
+## Where to run each command
+
+| Command / phase | Run on | Why |
+|-----------------|--------|-----|
+| Phases 1–2 (`run_matrix.py`, `validate_local.sh`) | **Dev container** | Needs Upside, conda, and `obj/upside` |
+| Phase 3 AWS setup (`aws configure`, `launch_ec2.sh`, `terminate.sh`, `collect_results.sh`) | **Your laptop/host terminal** | Needs AWS CLI credentials and your `.pem` key |
+| `bootstrap.sh` | **EC2 instance** (via SSH) | Builds Docker and runs the matrix on AWS hardware |
+
+If your repo is mounted at a path other than `/workspaces/DynaLab-merge-dynalab`,
+substitute that path everywhere below.
+
+---
+
+## What you get at the end
+
+After each matrix run:
+
+| File | Contents |
+|------|----------|
+| `benchmarks/results/<run>/status.json` | Pass/fail summary for the whole run |
+| `benchmarks/results/<run>/<case_id>/result.json` | Raw metrics for one case |
+| `benchmarks/results/<run>/<case_id>/work/bench.log` | Full stdout/stderr from the simulation |
+| `benchmarks/results/<run>/results.csv` | All cases in one spreadsheet-friendly table |
+| `benchmarks/results/<run>/report.md` | **The deliverable** — human-readable cost report |
+
+**Phase 2 deliverable:** `benchmarks/results/local/report.md` — validates the pipeline.
+
+**Phase 3 deliverable:** `benchmarks/results/aws/report.md` — real EC2 numbers for
+your deployment case.
+
+---
+
+## Folder layout
 
 ```
-| case | protein | mode | vCPU | wall (min) | vCPU-h | $ on-demand | $ spot | output GB |
-| ---- | ------- | ---- | ---- | ---------- | ------ | ----------- | ------ | --------- |
-| ...  | ...     | ...  | ...  | ...        | ...    | ...         | ...    | ...       |
+benchmarks/
+  README.md              ← this file
+  matrix.json            ← all benchmark cases (smoke / local / aws tiers)
+  pricing.json           ← AWS us-east-1 instance + storage rates
+  scripts/
+    run_one.py           ← run a single case, write result.json
+    run_matrix.py        ← run many cases from matrix.json
+    summarize.py         ← build report.md + results.csv from result.json files
+    fetch_proteins.py    ← download missing PDBs from RCSB (optional)
+    validate_local.sh    ← one-shot Phase 1 smoke + report
+    dynalab_paths.py     ← finds repo root (ignores stale UPSIDE_HOME)
+  aws/
+    launch_ec2.sh        ← start a benchmark EC2 instance
+    bootstrap.sh         ← on EC2: install Docker, build image, run aws tier
+    collect_results.sh   ← rsync results from EC2 to laptop
+    terminate.sh         ← stop the instance (required!)
+  proteins/              ← auto-downloaded PDBs land here (usually empty)
+  results/               ← all outputs (gitignored)
 ```
 
 ---
 
-## How to read this guide
+## Do I need to provide PDB files?
 
-There are three phases. **Do them in order.** Each step says exactly what to type and
-what to expect.
+**No.** Every case in the default `matrix.json` points at PDB files already in the
+repo under `example/`. The runner copies them into each job's work directory as
+`input.pdb` automatically.
 
-- **Phase 1 — Local smoke test (15 min).**
-  Make sure the benchmark scripts work on your laptop dev container before paying for AWS.
-- **Phase 2 — Local mini matrix (30–90 min).**
-  Run a tiny version of the matrix to validate the cost report.
-- **Phase 3 — AWS full matrix (1–2 hours of EC2 time, < $5 of credit).**
-  Run on AWS and get the real numbers.
+The `benchmarks/proteins/` folder is only used if you add matrix cases that
+reference structures not in the repo — `fetch_proteins.py` can download those
+from RCSB.
 
-If anything fails, scroll to the [Troubleshooting](#troubleshooting) section at the bottom.
+This is different from the Flask web UI, where you upload a PDB through the browser.
 
 ---
 
-# Phase 1 — Local smoke test
+## Phase 1 — Local smoke test
 
-Goal: prove that one tiny simulation runs end-to-end and produces a `result.json`.
+**Goal:** prove one tiny simulation runs end-to-end and produces `result.json`.
+
+**Time:** ~5–15 minutes (includes one-time Upside build if needed).
+
+**Where:** Dev container.
 
 ### 1.1 Open the dev container
 
 In VS Code: `View → Command Palette → Dev Containers: Reopen in Container`.
 
-If you don’t use VS Code, run inside the project folder:
+Without VS Code, from your project folder on the host:
 
 ```bash
 docker build -f .devcontainer/Dockerfile -t dynalab-dev .
@@ -67,23 +127,22 @@ docker run -it --rm \
   dynalab-dev bash
 ```
 
-You should now be at a shell prompt inside the container.
-
 ### 1.2 Activate the conda environment
 
 ```bash
 source /opt/conda/etc/profile.d/conda.sh
 conda activate upside2-env
-```
-
-Verify:
-
-```bash
-which python              # should contain /opt/conda/envs/upside2-env/
+which python    # should contain /opt/conda/envs/upside2-env/
 python -c "import tables, numpy, mdtraj; print('OK')"
 ```
 
-### 1.3 Build Upside in the DynaLab tree (one time, ~5 min)
+The entrypoint may already activate `upside2-env`; running the commands above is
+safe either way.
+
+### 1.3 Build Upside in your mounted repo (one time, ~5 min)
+
+The dev container image contains a clone at `/upside2-md`, but benchmarks run
+against **your mounted checkout**. Build Upside there once:
 
 ```bash
 cd /workspaces/DynaLab-merge-dynalab
@@ -91,64 +150,80 @@ cd /workspaces/DynaLab-merge-dynalab
 ls -lh obj/upside obj/libupside.so
 ```
 
-You should see two files. If not, see [Troubleshooting](#troubleshooting).
+Both files must exist before any benchmark will succeed.
 
 ### 1.4 Run the smoke test
 
-The benchmark scripts auto-detect your repo root (they prefer the bind-mounted
-checkout under `/workspaces/…` over the image's baked-in `/upside2-md` path).
-If you want to be explicit:
-
-```bash
-export UPSIDE_HOME=/workspaces/DynaLab-merge-dynalab   # adjust if your folder name differs
-```
-
-Then run the smoke case:
+**Recommended — one-shot validator** (sets `UPSIDE_HOME`, builds Upside if needed,
+runs smoke case, writes report):
 
 ```bash
 cd /workspaces/DynaLab-merge-dynalab
+bash benchmarks/scripts/validate_local.sh
+```
+
+**Alternative — manual command:**
+
+```bash
+cd /workspaces/DynaLab-merge-dynalab
+export UPSIDE_HOME=/workspaces/DynaLab-merge-dynalab
+
 python benchmarks/scripts/run_matrix.py \
     --matrix benchmarks/matrix.json \
     --output-dir benchmarks/results/smoke \
     --only smoke_chig
 ```
 
-Or use the one-shot validator (sets `UPSIDE_HOME` for you):
+### Success criteria
 
-```bash
-bash benchmarks/scripts/validate_local.sh
-```
-
-Expected output, last lines:
+Last lines should look like:
 
 ```
-  OK wall=<a few>s peak_rss=...MB output=...MB
+  OK wall=<5–30>s peak_rss=...MB output=...MB
 Matrix done: 1/1 OK
 ```
 
-If you see `FAIL` with `wall=0.0s`, see [Troubleshooting](#troubleshooting).
+Failure signs:
 
-If you see `1/1 OK`, the runner works. Move on to Phase 2.
+- `FAIL wall=0.0s` — instant crash; see [Troubleshooting](#troubleshooting)
+- `0/1 OK` — did not pass
+
+If `1/1 OK`, move to Phase 2.
 
 ---
 
-# Phase 2 — Local mini matrix
+## Phase 2 — Local mini matrix
 
-Goal: run 2–3 small cases on your laptop and produce the cost report. This validates
-the whole pipeline before you pay for an EC2 instance.
+**Goal:** run two short cases (constant-T + tension pulling), produce a cost report,
+and validate the full pipeline before spending on AWS.
+
+**Time:** ~90–100 minutes on a typical laptop dev container (~49 min per case).
+Not 5–20 minutes — local runs are slow because Docker shares limited CPU.
+
+**Where:** Dev container.
+
+### 2.1 Run the local tier
 
 ```bash
 cd /workspaces/DynaLab-merge-dynalab
+export UPSIDE_HOME=/workspaces/DynaLab-merge-dynalab
+
 python benchmarks/scripts/run_matrix.py \
     --matrix benchmarks/matrix.json \
     --output-dir benchmarks/results/local \
     --tier local
 ```
 
-This runs only the cases tagged `tier: "local"` in the matrix (small, short jobs).
-Expected total time: 5–20 minutes depending on your laptop.
+This runs **2 cases** sequentially:
 
-When it finishes, generate the cost report:
+| case_id | mode | protein | steps |
+|---------|------|---------|-------|
+| `local_small_const` | constant-T MD | 1dfn | 50,000 |
+| `local_small_tension` | constant-tension pull @ 22 pN | 1dfn | 50,000 |
+
+Each case **replaces** its previous results (work dir wiped, `result.json` overwritten).
+
+### 2.2 Generate the report
 
 ```bash
 python benchmarks/scripts/summarize.py \
@@ -157,96 +232,162 @@ python benchmarks/scripts/summarize.py \
     --output benchmarks/results/local/report.md
 ```
 
-Open `benchmarks/results/local/report.md`. You should see a populated table.
+Open `benchmarks/results/local/report.md`.
 
-> The dollar numbers in this local report are projections based on AWS pricing
-> (we *imagine* the case ran on a c7i.2xlarge), not real bills. The wall times
-> are real.
+### Success criteria
+
+- `status.json` shows `"ok_count": 2, "fail_count": 0`
+- Both cases have wall times of **many minutes**, not ~1 second
+- Report table has 2 rows with `ok: True`
+
+### What Phase 2 numbers mean (and don't mean)
+
+| Column | Trust for pipeline validation? | Trust for AWS planning? |
+|--------|-------------------------------|----------------------|
+| `wall_minutes` | ✅ Yes (real, on your laptop) | ❌ No — EC2 will differ |
+| `seconds_per_1M_steps` | ✅ Rough sanity check | ❌ Wait for Phase 3 |
+| `on_demand_cost_usd` / `spot_cost_usd` | ⚠️ Formula check only | ❌ Based on laptop wall time |
+| `peak_rss_mb` | ✅ Yes (~120 MB for 1dfn) | ✅ Memory won't be the bottleneck |
+
+Phase 2 proves the kit works. **Phase 3 gives the numbers you cite externally.**
+
+### CPU usage during local runs
+
+Each local case sets `omp_threads: 4`. During the run:
+
+- **First ~30–60 s:** mostly single-threaded Python setup (PDB parsing, config) → looks like 1 core
+- **MD phase:** up to 4 OpenMP threads in `obj/upside`
+- Docker Desktop may cap container CPUs — check **Settings → Resources → CPUs**
+
+Cases run **one at a time**, not in parallel.
 
 ---
 
-# Phase 3 — AWS full matrix
+## Phase 3 — AWS full matrix
 
-You will:
+**Goal:** run 9 representative cases on real EC2 hardware and produce the
+defensible cost/performance report.
 
-1. Launch one EC2 instance (~$0.36/hr on-demand, ~$0.11/hr spot for c7i.2xlarge).
-2. SSH in.
-3. Run a single bootstrap script that builds the image and runs the matrix.
-4. Download the results.
-5. Terminate the instance (very important — that's how you avoid paying $50 in idle).
+**Where:**
 
-The whole thing should cost **< $5** of your $200 credit, and take ~1.5–2.5 hours.
+- Steps 3.1–3.2, 3.4–3.5 → **laptop**
+- Step 3.3 → **EC2 via SSH**
 
-## 3.1 One-time AWS account setup
+### Time and cost expectations (realistic)
 
-If you have *never* used AWS from the command line on this laptop, do this once.
+| Stage | Duration | Notes |
+|-------|----------|-------|
+| Docker image build (first time) | ~15–25 min | Cached on re-run |
+| Upside build inside container | ~5 min | First time only |
+| **9 aws-tier cases** | **~4–12+ hours** | Sequential; several are 1M-step runs |
+| **Total EC2 wall time** | **~5–14 hours** typical | Depends on instance speed |
 
-### 3.1.1 Create an IAM user with programmatic access
+**Instance launched by default:** `c7i.4xlarge` (16 vCPU, 32 GiB RAM).
 
-1. Sign in to the AWS console as the root user (or an existing admin).
-2. Go to **IAM → Users → Create user**.
-3. Name it `dynalab-bench`. Click **Next**.
-4. Select **Attach policies directly**, attach **AdministratorAccess** for now
-   (you can lock this down later). Click **Next → Create user**.
-5. Open the new user → **Security credentials → Create access key → CLI**.
-   Download the CSV. **Keep it safe** — these are your AWS keys.
+| Billing mode | ~$ / hour | ~$ for 8 hr run |
+|--------------|-----------|-----------------|
+| On-demand | ~$0.71 | ~$5.70 |
+| Spot (`USE_SPOT=1`) | ~$0.22 | ~$1.75 |
 
-### 3.1.2 Install AWS CLI
+Still well within a $200 credit budget, but **much longer** than "1.5–2.5 hours."
+Plan to start it and let it run (use `nohup` — see below).
+
+---
+
+### 3.1 One-time AWS account setup
+
+Skip this section if you already have AWS CLI configured with a key pair and
+security group in `us-east-1`.
+
+All commands below run on your **laptop**, not in the dev container.
+
+#### 3.1.1 Create an IAM user
+
+1. AWS Console → **IAM → Users → Create user**
+2. Name: `dynalab-bench`
+3. Attach **AdministratorAccess** (you can restrict later)
+4. **Security credentials → Create access key → CLI** → download CSV
+
+#### 3.1.2 Install and configure AWS CLI
 
 ```bash
 # macOS
 brew install awscli
-# or: curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o AWSCLIV2.pkg && sudo installer -pkg AWSCLIV2.pkg -target /
 
-# Linux
-sudo apt-get install -y awscli
-```
-
-Then configure:
-
-```bash
+# verify
+aws --version
 aws configure
-# AWS Access Key ID:     <paste from CSV>
-# AWS Secret Access Key: <paste from CSV>
+# AWS Access Key ID:     <from CSV>
+# AWS Secret Access Key: <from CSV>
 # Default region name:   us-east-1
 # Default output format: json
+
+aws sts get-caller-identity    # should print your account ID
 ```
 
-### 3.1.3 Create an SSH key pair (one time)
+#### 3.1.3 Create an SSH key pair
 
 ```bash
 aws ec2 create-key-pair \
+    --region us-east-1 \
     --key-name dynalab-bench \
     --query 'KeyMaterial' --output text > ~/.ssh/dynalab-bench.pem
 chmod 600 ~/.ssh/dynalab-bench.pem
 ```
 
-This downloads a private key. AWS keeps the public half. We use it to SSH in.
-
-### 3.1.4 Create a security group that allows SSH from your IP
+#### 3.1.4 Create a security group (SSH from your IP only)
 
 ```bash
 MY_IP=$(curl -s https://checkip.amazonaws.com)
+
 aws ec2 create-security-group \
+    --region us-east-1 \
     --group-name dynalab-bench-sg \
-    --description "Allow SSH from my laptop"
+    --description "SSH from my laptop for DynaLab benchmarks"
+
 aws ec2 authorize-security-group-ingress \
+    --region us-east-1 \
     --group-name dynalab-bench-sg \
     --protocol tcp --port 22 \
     --cidr ${MY_IP}/32
 ```
 
-You're done with one-time setup.
+If your IP changes (different Wi‑Fi), re-run the `authorize-security-group-ingress`
+command with the new IP, or temporarily use your current `/32`.
 
-## 3.2 Launch the EC2 instance
+---
 
-From your laptop, in this repo's root:
+### 3.2 Launch the EC2 instance
+
+From your **laptop**, in the repo root:
 
 ```bash
-bash benchmarks/aws/launch_ec2.sh
+cd /path/to/DynaLab-merge-dynalab
+
+# recommended: Spot saves ~70% vs on-demand
+USE_SPOT=1 bash benchmarks/aws/launch_ec2.sh
 ```
 
-The script prints something like:
+Default settings (override with env vars):
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `INSTANCE_TYPE` | `c7i.4xlarge` | 16 vCPU — fits all matrix cases including parallel replicas |
+| `REGION` | `us-east-1` | |
+| `USE_SPOT` | `0` | Set to `1` for Spot pricing |
+| `ROOT_VOLUME_GB` | `60` | Enough for Docker image + results |
+
+Other examples:
+
+```bash
+# on-demand c7i.4xlarge (no Spot)
+bash benchmarks/aws/launch_ec2.sh
+
+# Spot c7i.2xlarge (cheaper, less RAM — still OK for most cases)
+USE_SPOT=1 INSTANCE_TYPE=c7i.2xlarge bash benchmarks/aws/launch_ec2.sh
+```
+
+The script prints:
 
 ```
 Instance ID:  i-0abc...
@@ -254,57 +395,131 @@ Public IP:    3.92.xx.xx
 SSH command:  ssh -i ~/.ssh/dynalab-bench.pem ec2-user@3.92.xx.xx
 ```
 
-**Save that information.** Wait ~30 seconds, then SSH in:
+State is saved to `benchmarks/aws/.last_instance.env` for `terminate.sh` and
+`collect_results.sh`.
+
+Wait ~30 seconds, then test SSH:
 
 ```bash
 ssh -i ~/.ssh/dynalab-bench.pem ec2-user@<public-ip>
 ```
 
-The first time you connect, it will ask `Are you sure you want to continue connecting`.
-Type `yes`.
+Type `yes` on first connect. `exit` to return to your laptop.
 
-## 3.3 Bootstrap the instance and run the matrix
+---
 
-You have two options for getting the code onto the instance:
+### 3.3 Push code and run bootstrap
 
-### Option A — Push your local checkout (simplest, recommended)
+#### 3.3.1 Push your local checkout (recommended)
 
-From a **second terminal on your laptop** (keep the SSH terminal too):
+**Important:** rsync your current repo so EC2 gets all benchmark fixes (path
+resolution, tension `.dat` writing, etc.).
+
+From your **laptop** (second terminal):
 
 ```bash
-rsync -avz --exclude='.git' --exclude='obj/' --exclude='benchmarks/results' \
+cd /path/to/DynaLab-merge-dynalab
+
+rsync -avz \
+    --exclude='.git' \
+    --exclude='obj/' \
+    --exclude='benchmarks/results' \
     -e "ssh -i ~/.ssh/dynalab-bench.pem" \
     ./ ec2-user@<public-ip>:~/DynaLab-merge-dynalab/
 ```
 
-### Option B — Clone from GitHub (if your fork is pushed)
+Do **not** rsync `obj/` — Upside is built fresh on EC2 inside the container.
 
-In the SSH terminal:
+#### 3.3.2 Alternative: clone from GitHub
+
+Only if your fork is pushed with the latest benchmark fixes:
 
 ```bash
+ssh -i ~/.ssh/dynalab-bench.pem ec2-user@<public-ip>
 git clone https://github.com/<you>/DynaLab-merge-dynalab.git ~/DynaLab-merge-dynalab
 ```
 
-### Now run the bootstrap inside the SSH terminal
+#### 3.3.3 Run bootstrap on EC2
+
+SSH into the instance:
 
 ```bash
+ssh -i ~/.ssh/dynalab-bench.pem ec2-user@<public-ip>
 cd ~/DynaLab-merge-dynalab
+```
+
+**If your laptop might sleep or disconnect**, run detached (recommended):
+
+```bash
+mkdir -p ~/dynalab_results/_logs
+nohup bash benchmarks/aws/bootstrap.sh \
+    > ~/dynalab_results/_logs/bootstrap.log 2>&1 &
+disown
+tail -f ~/dynalab_results/_logs/bootstrap.log
+```
+
+Press `Ctrl+C` to stop watching — the job keeps running. Reconnect later with
+the same `tail -f` command.
+
+**If you will stay connected the whole time:**
+
+```bash
 bash benchmarks/aws/bootstrap.sh
 ```
 
-This script:
+#### What bootstrap does
 
-1. Installs Docker (~1 min).
-2. Builds the dev container image (~15–25 min the first time).
-3. Runs the full benchmark matrix inside the container (~30–90 min).
-4. Writes `~/dynalab_results/` with `result.json` per case + a CSV + a report.
+1. Installs Docker + git (~1 min)
+2. Builds dev container image (~15–25 min first time; cached after)
+3. Builds Upside in the mounted repo inside the container (~5 min first time)
+4. Runs `fetch_proteins.py` (no-op for default matrix — all PDBs in `example/`)
+5. Runs **`run_matrix.py --tier aws`** (9 cases, sequential)
+6. Runs `summarize.py` → writes `~/dynalab_results/report.md`
 
-You will see progress in the terminal. **Do not close the terminal until it finishes.**
-If your laptop sleeps and SSH dies, see [Resuming after disconnect](#resuming-after-disconnect).
+Logs: `~/dynalab_results/_logs/bootstrap.log` and `~/dynalab_results/_logs/matrix.log`
 
-## 3.4 Download the results
+Monitor matrix progress inside a running bootstrap:
 
-In a terminal on your laptop:
+```bash
+# case pass/fail so far
+cat ~/dynalab_results/status.json
+
+# live matrix output
+tail -f ~/dynalab_results/_logs/matrix.log
+```
+
+#### Bootstrap environment variables (optional)
+
+```bash
+# run only one case on EC2
+MATRIX_ARGS="--only aws_small_const_8vcpu" bash benchmarks/aws/bootstrap.sh
+
+# override results directory
+RESULTS_DIR=$HOME/my_results bash benchmarks/aws/bootstrap.sh
+```
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `MATRIX_TIER` | `aws` | Which tier from `matrix.json` to run |
+| `MATRIX_ARGS` | (empty) | Extra args passed to `run_matrix.py` |
+| `RESULTS_DIR` | `~/dynalab_results` | Where results are written on EC2 |
+| `IMAGE_TAG` | `dynalab-bench:latest` | Docker image tag to build/use |
+| `OMP_THREADS` | `$(nproc)` | Default OpenMP threads in container (per-case `omp_threads` in matrix still applies) |
+
+---
+
+### 3.4 Download results
+
+Back on your **laptop**, after bootstrap finishes:
+
+**Option A — helper script** (reads IP from `.last_instance.env`):
+
+```bash
+cd /path/to/DynaLab-merge-dynalab
+bash benchmarks/aws/collect_results.sh
+```
+
+**Option B — manual rsync:**
 
 ```bash
 mkdir -p benchmarks/results/aws
@@ -314,117 +529,271 @@ rsync -avz \
     benchmarks/results/aws/
 ```
 
-You now have the AWS report at `benchmarks/results/aws/report.md`.
+Open **`benchmarks/results/aws/report.md`**.
 
-## 3.5 ⚠️ Terminate the instance
+---
 
-This is the step you cannot skip. An idle EC2 instance still costs money.
+### 3.5 Terminate the instance (required)
+
+An idle EC2 instance keeps billing. From your **laptop**:
 
 ```bash
 bash benchmarks/aws/terminate.sh
 ```
 
-Confirm in the AWS console (**EC2 → Instances**) that the instance state is
-`Terminated`. You're done.
+Type the instance ID when prompted to confirm.
+
+Verify in AWS Console → **EC2 → Instances** → state is **Terminated**.
+
+Also check **EC2 → Volumes** — no orphaned EBS volumes should remain (the launch
+script sets DeleteOnTermination on the root volume).
 
 ---
 
-# How the matrix is structured
+## How to read the report
 
-The benchmark cases live in `benchmarks/matrix.json`. Each case has these fields:
+Example header:
+
+```
+Cases reported: 9 (ok: 9, fail: 0)
+Total compute on-demand cost (this run): $X.XX
+Total wall time (sum across cases): XXX min
+```
+
+### Column guide
+
+| Column | Meaning |
+|--------|---------|
+| `wall_minutes` | **Real** elapsed time for that case on the machine that ran it |
+| `seconds_per_1M_steps` | `wall_seconds ÷ (duration / 1e6)` — throughput metric |
+| `steps_per_second` | Inverse of above, per case step count |
+| `peak_rss_mb` | Peak RAM used — if ≪ instance RAM, memory is not your bottleneck |
+| `output_mb` | Disk written under the work directory (trajectory + logs) |
+| `instance_assumed` | EC2 type used for **cost projection** (from matrix.json) |
+| `vcpus` | vCPU count of `instance_assumed` |
+| `vcpu_hours` | `vcpus × wall_hours` — capacity accounting |
+| `on_demand_cost_usd` | `(wall_hours) × (on-demand $/hr for instance_assumed)` |
+| `spot_cost_usd` | Same, using Spot rate from `pricing.json` |
+| `sweep_subjobs` | For force sweeps: number of independent sub-jobs (cost scales with this on Batch) |
+
+### Interpreting dollar amounts
+
+Dollar columns answer: *"If this wall time happened on the listed instance type
+in us-east-1, what would compute cost?"*
+
+They are **not** your AWS bill unless you actually ran on that instance type at
+those rates for exactly that duration. Phase 3 runs on `c7i.4xlarge` by default
+but each case may assume a different type for cost comparison (see matrix table).
+
+### Key comparisons to draw from Phase 3
+
+1. **vCPU scaling:** compare `aws_small_const_4vcpu` vs `_8vcpu` vs `_16vcpu`
+   → does doubling cores halve wall time?
+2. **Protein scaling:** compare `aws_small_const_8vcpu` vs `aws_med_const` vs `aws_large_const`
+   → how does residue count affect `seconds_per_1M_steps`?
+3. **Force sweep:** `aws_small_force_sweep` — 8 sub-jobs on one box with
+   `max_parallel: 4` → models Phase 1 sweep cost on a single EC2 vs future Batch
+4. **Pulling overhead:** compare constant-T vs tension cases at same protein/steps
+
+### Extrapolating to production runs
+
+Once you have `seconds_per_1M_steps` from the baseline case on EC2:
+
+```
+estimated_wall_hours = (production_steps / 1e6) × seconds_per_1M_steps / 3600
+estimated_spot_cost  = estimated_wall_hours × spot_rate_for_instance
+```
+
+For a force sweep with N sub-jobs on **one EC2 box** (bounded parallelism P):
+
+```
+wall_hours ≈ ceil(N / P) × single_job_wall_hours
+total_cost ≈ wall_hours × instance_hourly_rate    # one box the whole time
+```
+
+On **AWS Batch** (all N jobs in parallel):
+
+```
+wall_hours ≈ single_job_wall_hours
+total_cost ≈ N × single_job_wall_hours × instance_hourly_rate
+```
+
+That comparison is the main deployment decision the report enables.
+
+---
+
+## Matrix reference
+
+All cases live in `benchmarks/matrix.json`. PDBs come from `example/` — no upload needed.
+
+### Tier summary
+
+| Tier | Cases | Purpose | Where to run |
+|------|-------|---------|--------------|
+| `smoke` | 1 | Wiring check (~5k steps, < 30 s) | Dev container |
+| `local` | 2 | Pipeline validation (~50k steps, ~90 min total) | Dev container |
+| `aws` | 9 | Defensible performance/cost data | EC2 via bootstrap |
+
+### Full case list
+
+| case_id | tier | mode | protein | steps | omp_threads | instance_assumed |
+|---------|------|------|---------|-------|-------------|------------------|
+| `smoke_chig` | smoke | constant | chig (~10 res) | 5,000 | 4 | c7i.2xlarge |
+| `local_small_const` | local | constant | 1dfn | 50,000 | 4 | c7i.2xlarge |
+| `local_small_tension` | local | tension @ 22 pN | 1dfn | 50,000 | 4 | c7i.2xlarge |
+| `aws_small_const_4vcpu` | aws | constant | 1dfn | 1,000,000 | 4 | c7i.xlarge |
+| `aws_small_const_8vcpu` | aws | constant | 1dfn | 1,000,000 | 8 | c7i.2xlarge |
+| `aws_small_const_16vcpu` | aws | constant | 1dfn | 1,000,000 | 16 | c7i.4xlarge |
+| `aws_med_const` | aws | constant | 1ubq | 1,000,000 | 8 | c7i.2xlarge |
+| `aws_large_const` | aws | constant | 2qke_mon | 500,000 | 8 | c7i.2xlarge |
+| `aws_small_indep4` | aws | 4 independent replicas | 1dfn | 500,000 × 4 | 4 | c7i.4xlarge |
+| `aws_small_remd4` | aws | replica exchange (4 temps) | 1dfn | 500,000 | 4 | c7i.4xlarge |
+| `aws_med_tension` | aws | tension @ 22 pN | 1ubq | 500,000 | 8 | c7i.2xlarge |
+| `aws_small_force_sweep` | aws | 4 forces × 2 replicas | 1dfn | 500,000 × 8 jobs | 4 | c7i.4xlarge |
+
+### Running subsets
+
+```bash
+# one case
+python benchmarks/scripts/run_matrix.py \
+    --matrix benchmarks/matrix.json \
+    --output-dir benchmarks/results/aws \
+    --only aws_small_const_8vcpu
+
+# whole tier
+python benchmarks/scripts/run_matrix.py \
+    --matrix benchmarks/matrix.json \
+    --output-dir benchmarks/results/aws \
+    --tier aws
+
+# skip a case
+python benchmarks/scripts/run_matrix.py ... --tier aws --skip aws_small_remd4
+```
+
+Re-running a case **wipes and replaces** its previous `result.json`.
+
+### Adding a custom case
+
+Copy an existing entry in `matrix.json`. Required fields:
 
 ```json
 {
-  "case_id": "med_const_8vcpu",
+  "case_id": "my_case",
   "tier": "aws",
   "mode": "constant",
-  "pdb_id": "1ubq",
-  "pdb_source": "example/07.MoreRestraints/pdb/1UBQ.pdb",
+  "pdb_id": "1dfn",
+  "pdb_source": "example/01.GettingStarted/pdb/1dfn.pdb",
   "duration": 1000000,
   "frame_interval": 200,
   "temperature": "0.85",
-  "n_replicas": 1,
   "omp_threads": 8,
   "instance_assumed": "c7i.2xlarge"
 }
 ```
 
-Tiers:
+For `tension` / `velocity` modes, also set `tension_pn`, `anchor_residue` (default 0),
+and `pull_residue` (-1 = last Cα, resolved automatically).
 
-- `smoke` — runs in seconds. Just to verify nothing is broken.
-- `local` — small enough to run on a laptop, ~5–20 min total.
-- `aws` — real benchmarks. Run on a c7i.2xlarge (8 vCPU) in AWS.
+For `force_sweep`, use `forces_pn`, `n_replicas`, `max_parallel`, `sim_type`.
 
-Run the matrix with `--tier <name>` or pick a single case with `--only <case_id>`.
-
----
-
-# How the cost model works
-
-For each case we measure:
-
-- `wall_seconds` — real time the simulation took.
-- `peak_rss_kb` — peak memory the simulation used.
-- `output_bytes` — bytes written under the work directory.
-- `cpu_user_seconds` — CPU work done by user code.
-- `steps_per_second` — derived from duration ÷ wall.
-
-`summarize.py` joins each result with `pricing.json` to compute:
-
-```
-vcpu_hours          = vcpu_count * (wall_seconds / 3600)
-on_demand_cost_usd  = (wall_seconds / 3600) * on_demand_per_hour
-spot_cost_usd       = (wall_seconds / 3600) * spot_per_hour
-ebs_cost_per_month  = (output_bytes / 1e9) * ebs_gp3_per_gb_month
-s3_cost_per_month   = (output_bytes / 1e9) * s3_standard_per_gb_month
-```
-
-For force sweeps, total cost is the sum across all sub-jobs, but wall time is the
-slowest sub-job (because they run in parallel on Batch).
-
-Edit `benchmarks/pricing.json` if AWS pricing changes.
+If `pdb_source` is not in the repo, run `python benchmarks/scripts/fetch_proteins.py`
+first or place the file in `benchmarks/proteins/`.
 
 ---
 
-# Troubleshooting
+## Cost model
+
+Rates are in `benchmarks/pricing.json` (approximate us-east-1, May 2026).
+Verify against the [AWS Pricing Calculator](https://calculator.aws/) before
+quoting externally.
+
+### Measured fields (real)
+
+- `wall_seconds`, `cpu_user_seconds`, `cpu_sys_seconds`
+- `peak_rss_mb`, `output_mb`
+- `steps_per_second`, `seconds_per_1M_steps`
+
+### Projected fields (computed)
+
+```
+wall_hours            = wall_seconds / 3600
+vcpu_hours            = vcpus × wall_hours
+on_demand_cost_usd    = wall_hours × on_demand_per_hour   # for instance_assumed
+spot_cost_usd         = wall_hours × spot_per_hour
+ebs_month_usd         = (output_bytes / 1e9) × ebs_gp3_per_gb_month
+s3_month_usd          = (output_bytes / 1e9) × s3_standard_per_gb_month
+```
+
+Storage costs are **monthly** — multiply by months you retain artifacts.
+
+Spot prices fluctuate; treat the Spot column as an approximate floor.
+
+Edit `benchmarks/pricing.json` when rates change.
+
+---
+
+## Troubleshooting
+
+### All aws cases fail instantly (`0/9 OK`, `wall=0.3s`)
+
+Usually **`obj/upside` was never built** on EC2. Check the bootstrap log for:
+
+```
+cd: obj: No such file or directory
+CMake Error: The source directory "/workspaces/src" does not exist
+```
+
+rsync excludes `obj/` (expected). `install.sh` must create `obj/` before building.
+Update to the latest `install.sh`, rsync to EC2, and re-run bootstrap:
+
+```bash
+# laptop
+rsync -avz --exclude='.git' --exclude='obj/' --exclude='benchmarks/results' \
+    -e "ssh -i ~/.ssh/dynalab-bench.pem" \
+    ./ ec2-user@<public-ip>:~/DynaLab-merge-dynalab/
+
+# EC2 (Docker image already built — bootstrap skips rebuild)
+cd ~/DynaLab-merge-dynalab
+bash benchmarks/aws/bootstrap.sh
+```
+
+You should see `[bootstrap] Upside build OK` before the matrix starts.
 
 ### `obj/upside: No such file or directory`
 
-You forgot to build Upside in the DynaLab tree. Run `sudo ./install.sh` from the
-repo root inside the dev container.
-
-### `can't open file '/upside2-md/start/Single_Replica.py'` (or `FAIL wall=0.0s`)
-
-The dev container image sets `UPSIDE_HOME=/upside2-md`, but your real code lives
-under `/workspaces/DynaLab-merge-dynalab`. The benchmark scripts now auto-detect
-the mounted checkout — **re-open your terminal** (or re-run the entrypoint) so
-the updated `.devcontainer/entrypoint.sh` picks up the right path.
-
-Quick fix without restarting:
+Build Upside in your mounted repo (not the image clone):
 
 ```bash
-export UPSIDE_HOME=/workspaces/DynaLab-merge-dynalab   # adjust if your folder name differs
-cd "$UPSIDE_HOME"
-[ -x obj/upside ] || sudo ./install.sh
-python benchmarks/scripts/run_matrix.py \
-    --matrix benchmarks/matrix.json \
-    --output-dir benchmarks/results/smoke \
-    --only smoke_chig
+cd /workspaces/DynaLab-merge-dynalab
+sudo ./install.sh
 ```
 
-Check `benchmarks/results/smoke/smoke_chig/work/bench.log` if it still fails.
+### `can't open file '/upside2-md/start/Single_Replica.py'` or `FAIL wall=0.0s`
 
-### Simulation fails instantly with `input.pdb is not a valid filename`
+Stale `UPSIDE_HOME`. The benchmark scripts auto-detect the mounted checkout, but
+you still need `obj/upside` built in that tree (step 1.3).
 
-The start scripts need an **absolute** job directory path. If you see a relative
-path like `benchmarks/results/.../work/input.pdb` in `bench.log`, update to the
-latest benchmark scripts (they now resolve paths automatically) and re-run.
+Quick fix:
 
-### Tension case fails with `residue -1` in `bench.log`
+```bash
+export UPSIDE_HOME=/workspaces/DynaLab-merge-dynalab
+[ -x obj/upside ] || sudo ./install.sh
+bash benchmarks/scripts/validate_local.sh
+```
 
-Pulling benchmarks need anchor + puller rows in `Tension_Simulations.dat`, with
-`-1` resolved to the last Cα index. Update to the latest `run_one.py` (matches
-`start/Force_Sweep.py`) and re-run only the failed case:
+Check `bench.log` — the `cmd=` line should reference `/workspaces/.../start/`,
+not `/upside2-md/`.
+
+### `input.pdb is not a valid filename` (instant fail, ~1 s wall time)
+
+The start scripts need an **absolute** job directory. Update to the latest
+`run_one.py` (paths are resolved automatically). Re-run the failed tier.
+
+### Tension case fails with `residue -1`
+
+Pulling cases need anchor + puller rows in `Tension_Simulations.dat`, with
+`pull_residue: -1` resolved to the last Cα index. Update to the latest
+`run_one.py` and re-run:
 
 ```bash
 python benchmarks/scripts/run_matrix.py \
@@ -433,80 +802,83 @@ python benchmarks/scripts/run_matrix.py \
     --only local_small_tension
 ```
 
-Either way, passing an absolute `--output-dir` also works:
+A correct `Tension_Simulations.dat` looks like:
 
-```bash
-python benchmarks/scripts/run_matrix.py \
-    --matrix benchmarks/matrix.json \
-    --output-dir /workspaces/DynaLab-merge-dynalab/benchmarks/results/local \
-    --tier local
+```
+residue tension_x tension_y tension_z
+0 0.0 0.0 -0.531401
+59 0.0 0.0 0.531401
 ```
 
-### `RuntimeError: UPSIDE_HOME not set`
+### Only one CPU core seems busy
 
-The benchmark runner needs a valid DynaLab checkout. Either run from inside the
-repo or:
+Normal during the Python setup phase. During MD, expect up to `omp_threads`
+cores. Docker Desktop may cap container CPUs — check Settings → Resources.
 
-```bash
-export UPSIDE_HOME=/workspaces/DynaLab-merge-dynalab   # adjust path
-```
+### `aws: command not found` or credentials errors
 
-### Docker build fails on `pip install` step
+Install AWS CLI on your **laptop** (not dev container) and run `aws configure`.
 
-This sometimes happens because of network flakiness. Just retry:
+### Security group / key not found on launch
 
-```bash
-sudo docker build -f .devcontainer/Dockerfile -t dynalab-bench:latest .
-```
+Add `--region us-east-1` to all `aws ec2` commands if your default region differs.
 
-### `bash benchmarks/aws/bootstrap.sh` fails
+Re-create resources from §3.1.3–3.1.4 if needed.
 
-Read the last 30 lines of output. Common causes:
+### Docker build fails on EC2
 
-- Out of disk space — relaunch the EC2 with a bigger root volume (the launch
-  script defaults to 60 GB which is enough; if you tweaked it, raise it).
-- Conda environment didn't build — the Docker build retries 3× but rare network
-  outages can still kill it. Re-run the script; the cached layers make it fast.
+Network flake during conda env create. Re-run `bootstrap.sh` — cached Docker
+layers make retries fast.
 
-### Resuming after disconnect
+If out of disk: relaunch with `ROOT_VOLUME_GB=100`.
 
-If your SSH session drops while bootstrap is running, **the script keeps running
-on the EC2 box** because it was started with nohup-ish protection. SSH back in and:
+### SSH disconnected during bootstrap
+
+**Foreground** `bash benchmarks/aws/bootstrap.sh` stops if the SSH session dies.
+
+If you used **`nohup`** (recommended in §3.3.3), the job continues. Reconnect:
 
 ```bash
-tail -f ~/dynalab_results/bootstrap.log
+ssh -i ~/.ssh/dynalab-bench.pem ec2-user@<public-ip>
+tail -f ~/dynalab_results/_logs/bootstrap.log
 ```
 
-When it stops growing, the matrix is done.
+When the log stops growing, check `cat ~/dynalab_results/status.json`.
 
-If you want it fully detached up front, run instead:
+### Partial aws matrix — rerun failed cases only
 
 ```bash
-nohup bash benchmarks/aws/bootstrap.sh > ~/dynalab_results/bootstrap.log 2>&1 &
-disown
+# on EC2, inside the repo, after bootstrap's Docker image exists:
+sudo docker run --rm \
+    -v "$HOME/DynaLab-merge-dynalab:/workspaces/DynaLab-merge-dynalab" \
+    -v "$HOME/dynalab_results:/results" \
+    -e UPSIDE_HOME=/workspaces/DynaLab-merge-dynalab \
+    dynalab-bench:latest \
+    bash -lc 'source /opt/conda/etc/profile.d/conda.sh && conda activate upside2-env && \
+      python benchmarks/scripts/run_matrix.py \
+        --matrix benchmarks/matrix.json --output-dir /results \
+        --only aws_med_tension && \
+      python benchmarks/scripts/summarize.py \
+        --results-dir /results --pricing benchmarks/pricing.json \
+        --output /results/report.md'
 ```
 
-Then `tail -f ~/dynalab_results/bootstrap.log` to watch progress.
+### Charges after terminate
 
-### I terminated the instance but I still see charges
-
-EBS volumes can outlive the instance if "Delete on termination" was off. The
-launch script sets it on by default. Double-check in the EC2 console under
-**Volumes**.
+Check EC2 → Volumes for orphaned EBS volumes. The launch script sets
+DeleteOnTermination on the root volume by default.
 
 ---
 
-# What this kit does NOT do
+## What this kit does NOT do
 
-This kit deploys benchmarks. It does **not**:
+- **Always-on Flask web server** — see `deploy/` for that
+- **AWS Batch / multi-user architecture** — a follow-on decision after you
+  have Phase 3 numbers
+- **CloudWatch alarms or budget alerts** — set those up separately in AWS Console
+- **Tamarind API cost** — external; not measured here
 
-- Stand up an always-on Flask server (use `deploy/` for that).
-- Build a multi-user AWS Batch architecture (a future step, justified by the
-  numbers this kit produces).
-- Set up CloudWatch alarms or budget alerts (do that in the AWS console once,
-  separately).
+When Phase 3 is done, the key question is:
 
-When you have the report, the right next conversation is:
-
-> *"Given these numbers, do we need AWS Batch, or is a single shared EC2 enough
-> for our actual usage pattern?"*
+> *Given these EC2 numbers, do we need AWS Batch for force sweeps, or is a
+> shared EC2 instance enough for our usage pattern?*
