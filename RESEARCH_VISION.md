@@ -63,7 +63,7 @@ The selectivity problem with ECM-targeted therapies is fundamental: collagen I i
 
 The mechanical biomarker solution: if a drug only binds collagen I when the protein is stretched — targeting a cryptic epitope that appears only above a certain force threshold, say 20 pN (piconewtons — explained below) — it will selectively accumulate in fibrotic tissue where that force is present, and leave healthy collagen in normal tissue completely untouched. The drug is intrinsically selective because the target itself only exists where the disease is. This is **mechanistic selectivity**: a drug that physically cannot bind its target in healthy tissue.
 
-A **piconewton (pN)** is an extraordinarily small force — 10⁻¹² Newtons, roughly a trillion times smaller than the weight of a paperclip. It is nevertheless the relevant force scale for individual proteins: it takes ~5–100 pN to partially unfold a protein domain, and these are the forces that act on ECM proteins in fibrotic tissue.
+A **piconewton (pN)** is an extraordinarily small force — 10⁻¹² Newtons, roughly ten billion times smaller than the weight of a paperclip. It is nevertheless the relevant force scale for individual proteins: it takes ~5–100 pN to partially unfold a protein domain, and these are the forces that act on ECM proteins in fibrotic tissue.
 
 ---
 
@@ -99,6 +99,8 @@ The force range of interest (5–50 pN) corresponds to **domain-level partial un
 - It can run hundreds of independent copies of the simulation simultaneously at different force values, which matches the ensemble approach of the centrifuge experimental platform
 
 The coarse-grained representation is actually well-matched to the biological question being asked. The Ramachandran potential (which encodes how the backbone wants to fold) and the hydrogen bond potential (which holds secondary structure together) directly represent the stability of α-helices and β-sheets — so "which structural elements unfold and in what order as force increases" is exactly the question these potentials can answer.
+
+*(A scientific caveat: Upside's force field is a statistical potential derived from equilibrium, folded structures in the PDB. Applying mechanical tension pushes proteins into rare, non-equilibrium transition states not present in the PDB. While an excellent screening tool, the specific unfolding intermediates predicted by equilibrium statistical potentials should be treated as hypotheses requiring experimental validation).*
 
 ### What a Pulling Simulation Looks Like
 
@@ -191,18 +193,18 @@ Three physical principles have been designed to apply controlled piconewton-rang
 
 **Platform 1 — Fluid Flow:** Proteins anchored to a surface; shear flow of fluid past the surface applies a **drag force** (resistance force from the fluid) on the free end of the protein. Force is controlled by flow velocity. The challenge: force uniformity across the surface is difficult to achieve; the hydrodynamics (fluid mechanics near a wall) are complex; careful engineering is needed to align the force along the desired axis.
 
-**Platform 2 — Electric/Magnetic Field:** Proteins tagged at one end with a charged molecule or a magnetic particle; an electric or magnetic field gradient applies force. The challenge: generating field gradients that are both strong enough and uniform enough for quantitative force control over a large surface area is difficult; adding a magnetic bead to the protein significantly increases its mass and may alter its behaviour.
+**Platform 2 — Electric/Magnetic Field:** Proteins tagged at one end with a charged molecule or a magnetic particle; an electric or magnetic field gradient applies force. The challenge: generating field gradients that are both strong enough and uniform enough for quantitative force control over a large surface area is difficult.
 
-**Platform 3 — Centrifugal Force (preferred):** Proteins anchored to the inner wall of a centrifuge tube. When the tube spins, centrifugal force (the apparent outward force you feel on a merry-go-round) pulls the free end of the protein radially outward away from the tube wall. Force is set by rotation speed (RPM). Clean geometry, highly uniform force across the entire tube wall, precise and continuously tuneable force control.
+**Platform 3 — Centrifugal Force (preferred):** Proteins anchored to the inner wall of a centrifuge tube and tagged at the free end with a dense microparticle (e.g., a silica or gold bead). When the tube spins, centrifugal force pulls the bead radially outward, stretching the protein. Force is set by rotation speed (RPM) and bead mass. Clean geometry, highly uniform force across the entire tube wall, precise and continuously tuneable force control.
 
 ### The Centrifuge Platform in Detail
 
 **Force range and control:** Centrifugal force on an object is `F = m · ω² · r`, where:
-- `m` is the effective mass of the protein (corrected for buoyancy in solution — the protein is less dense than the surrounding water, so it's partially offset)
+- `m` is the effective mass of the pulling bead (corrected for buoyancy in solution)
 - `ω` (omega) is the angular velocity in radians per second (proportional to RPM)
 - `r` is the radius — how far from the rotation axis the protein is anchored
 
-For a typical protein domain weighing 10–50 kDa (kilodaltons — the standard unit for protein mass, where 1 dalton ≈ the mass of one proton) anchored at r ≈ 5 cm from the rotation axis, spinning at a few thousand RPM gives forces in the 5–50 pN range. The force is continuously tuneable by changing the RPM, and because the centrifugal field is uniform across the entire tube wall at a given radius, all proteins at the same position experience identical force — unlike flow-based methods where edge effects create non-uniformities.
+For a typical protein domain, generating forces in the 5–50 pN range with a standard laboratory centrifuge requires tagging the free end with a dense particle. A bare protein (10–50 kDa) at a few thousand RPM would only experience a fraction of a piconewton (~0.1 pN). By attaching a 1-micrometer silica bead, spinning at a few thousand RPM at r ≈ 5 cm easily generates the targeted 5–50 pN. The force is continuously tuneable by changing the RPM, and because the centrifugal field is uniform across the entire tube wall at a given radius, all proteins at the same position experience identical force.
 
 **The simultaneous multi-condition design:** The key insight is that within a single centrifuge tube, by placing proteins at different radial distances from the rotation axis, different zones experience different forces at the same RPM (because `F ∝ r`). A single tube can be divided into 10 radial zones spanning, say, 4–7 cm from the axis — each zone at a distinct force level. One spin = 10 simultaneous force conditions. Running 10 different RPM values gives 100 conditions from 10 spins.
 
