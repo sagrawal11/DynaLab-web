@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.5)
 project(upside CXX C)
 
-option(DEBUG "Enable debug build" ON)
+# DEBUG=OFF -> release build (-O3 --fast-math). What benchmarks and production runs want.
+# DEBUG=ON  -> -Og -g -pg (gprof). 5-10x slower; only useful for profiling.
+# install.sh forwards UPSIDE_BUILD_TYPE here, so the default rarely matters in practice,
+# but we default to OFF so a bare `cmake ../src/` no longer produces a debug binary.
+option(DEBUG "Enable debug build (-Og + -pg). Default OFF for release." OFF)
 # option(USE_CUDA "Enable CUDA acceleration" ON)
 
 # Detect ARM architecture on any platform (Linux, macOS)

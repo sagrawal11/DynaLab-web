@@ -82,7 +82,8 @@ benchmarks/
     dynalab_paths.py     ← finds repo root (ignores stale UPSIDE_HOME)
   aws/
     launch_ec2.sh        ← start a benchmark EC2 instance
-    bootstrap.sh         ← on EC2: install Docker, build image, run aws tier
+    bootstrap.sh         ← on EC2: install Docker, build image, build Upside (release), run aws tier
+    monitor.sh           ← on EC2: one-shot progress report (case status, log tail, sim.run.log)
     collect_results.sh   ← rsync results from EC2 to laptop
     terminate.sh         ← stop the instance (required!)
   proteins/              ← auto-downloaded PDBs land here (usually empty)
@@ -278,19 +279,26 @@ defensible cost/performance report.
 | Stage | Duration | Notes |
 |-------|----------|-------|
 | Docker image build (first time) | ~15–25 min | Cached on re-run |
-| Upside build inside container | ~5 min | First time only |
-| **9 aws-tier cases** | **~4–12+ hours** | Sequential; several are 1M-step runs |
-| **Total EC2 wall time** | **~5–14 hours** typical | Depends on instance speed |
+| Upside build inside container | ~3–5 min | First time only; release mode |
+| Pre-flight smoke speed-check | <30 s | Aborts if release build looks wrong |
+| **10 aws-tier cases** | **~8–14 hours** typical | Sequential; biggest case is `aws_baseline_large` (2qke_mon) |
+| **Total EC2 wall time** | **~9–15 hours** typical | Depends on per-core throughput |
 
-**Instance launched by default:** `c7i.4xlarge` (16 vCPU, 32 GiB RAM).
+**Instance launched by default:** `c7i.4xlarge` (16 vCPU = 8 physical + 8 HT, 32 GiB RAM).
 
-| Billing mode | ~$ / hour | ~$ for 8 hr run |
-|--------------|-----------|-----------------|
-| On-demand | ~$0.71 | ~$5.70 |
-| Spot (`USE_SPOT=1`) | ~$0.22 | ~$1.75 |
+| Billing mode | ~$ / hour | ~$ for 12 hr run |
+|--------------|-----------|-------------------|
+| On-demand | ~$0.71 | ~$8.50 |
+| Spot (`USE_SPOT=1`) | ~$0.22 | ~$2.65 |
 
-Still well within a $200 credit budget, but **much longer** than "1.5–2.5 hours."
-Plan to start it and let it run (use `nohup` — see below).
+> **Critical:** the build must be **release mode** (`-O3 --fast-math`). The build
+> system used to default to **debug** (`-Og -g -pg`), which is **5–10× slower**.
+> `install.sh` now defaults to release; bootstrap also detects + force-rebuilds
+> any stale debug binary. See [Troubleshooting → "Upside runs ~7× slower than expected"](#upside-runs-7x-slower-than-expected) if you ever see single-core
+> rates below ~10 steps/sec on `c7i.4xlarge` for 1dfn.
+
+Plan to start the run, **detach with `nohup`**, and check back later. Even on a
+fast network your laptop's SSH session is unrelated to job survival.
 
 ---
 
@@ -471,31 +479,51 @@ bash benchmarks/aws/bootstrap.sh
 
 1. Installs Docker + git (~1 min)
 2. Builds dev container image (~15–25 min first time; cached after)
-3. Builds Upside in the mounted repo inside the container (~5 min first time)
-4. Runs `fetch_proteins.py` (no-op for default matrix — all PDBs in `example/`)
-5. Runs **`run_matrix.py --tier aws`** (9 cases, sequential)
-6. Runs `summarize.py` → writes `~/dynalab_results/report.md`
+3. Builds Upside **release mode** in the mounted repo (force-rebuild if a stale
+   debug binary is present; ~3–5 min first time)
+4. **Pre-flight smoke speed-check** — runs `smoke_chig` and checks wall time is
+   under `SMOKE_MAX_SECONDS` (default 60 s). If the binary is somehow still
+   debug, bootstrap aborts before you commit to the full matrix.
+5. Runs `fetch_proteins.py` (no-op for default matrix — all PDBs in `example/`)
+6. Runs **`run_matrix.py --tier aws`** (10 cases, sequential) with `PYTHONUNBUFFERED=1`
+   so `matrix.log` shows live progress
+7. Runs `summarize.py` → writes `~/dynalab_results/report.md`
 
-Logs: `~/dynalab_results/_logs/bootstrap.log` and `~/dynalab_results/_logs/matrix.log`
+Logs: `~/dynalab_results/_logs/bootstrap.log`, `_logs/upside-build.log`,
+`_logs/smoke.log`, `_logs/matrix.log`.
 
-Monitor matrix progress inside a running bootstrap:
+Monitor matrix progress (single command):
 
 ```bash
-# case pass/fail so far
-cat ~/dynalab_results/status.json
+bash benchmarks/aws/monitor.sh
+```
 
-# live matrix output
-tail -f ~/dynalab_results/_logs/matrix.log
+That prints the pass/fail summary, what case is currently running (with the
+`sim.run.log` step counter), the matrix log tail, and the report preview if it
+exists. You can run it any time, from a second SSH session if you want.
+
+Lower-level monitoring:
+
+```bash
+cat ~/dynalab_results/status.json           # written only when the matrix finishes
+tail -f ~/dynalab_results/_logs/matrix.log  # live matrix output
+ls -lh ~/dynalab_results/*/result.json      # per-case completion (one file per finished case)
 ```
 
 #### Bootstrap environment variables (optional)
 
 ```bash
 # run only one case on EC2
-MATRIX_ARGS="--only aws_small_const_8vcpu" bash benchmarks/aws/bootstrap.sh
+MATRIX_ARGS="--only aws_baseline_small" bash benchmarks/aws/bootstrap.sh
 
-# override results directory
-RESULTS_DIR=$HOME/my_results bash benchmarks/aws/bootstrap.sh
+# override results directory (recommended when re-running on a box with stale state)
+RESULTS_DIR=$HOME/dynalab_results_v2 bash benchmarks/aws/bootstrap.sh
+
+# force a clean Upside rebuild even if obj/upside exists
+FORCE_REBUILD=1 bash benchmarks/aws/bootstrap.sh
+
+# skip the smoke speed-check (rarely needed; saves ~30 s)
+SKIP_SMOKE=1 bash benchmarks/aws/bootstrap.sh
 ```
 
 | Variable | Default | Meaning |
@@ -504,7 +532,11 @@ RESULTS_DIR=$HOME/my_results bash benchmarks/aws/bootstrap.sh
 | `MATRIX_ARGS` | (empty) | Extra args passed to `run_matrix.py` |
 | `RESULTS_DIR` | `~/dynalab_results` | Where results are written on EC2 |
 | `IMAGE_TAG` | `dynalab-bench:latest` | Docker image tag to build/use |
-| `OMP_THREADS` | `$(nproc)` | Default OpenMP threads in container (per-case `omp_threads` in matrix still applies) |
+| `OMP_THREADS` | `$(nproc)` | Default `OMP_NUM_THREADS` in the container (per-case `omp_threads` in `matrix.json` still overrides) |
+| `UPSIDE_BUILD_TYPE` | `release` | `release` (default, `-O3`) or `debug` (`-Og -pg`, 5–10× slower; profiling only) |
+| `FORCE_REBUILD` | `0` | `1` to force a clean Upside rebuild |
+| `SKIP_SMOKE` | `0` | `1` to skip the pre-flight speed-check |
+| `SMOKE_MAX_SECONDS` | `60` | Hard ceiling for the smoke wall time before bootstrap aborts |
 
 ---
 
@@ -555,7 +587,7 @@ script sets DeleteOnTermination on the root volume).
 Example header:
 
 ```
-Cases reported: 9 (ok: 9, fail: 0)
+Cases reported: 10 (ok: 10, fail: 0)
 Total compute on-demand cost (this run): $X.XX
 Total wall time (sum across cases): XXX min
 ```
@@ -587,13 +619,23 @@ but each case may assume a different type for cost comparison (see matrix table)
 
 ### Key comparisons to draw from Phase 3
 
-1. **vCPU scaling:** compare `aws_small_const_4vcpu` vs `_8vcpu` vs `_16vcpu`
-   → does doubling cores halve wall time?
-2. **Protein scaling:** compare `aws_small_const_8vcpu` vs `aws_med_const` vs `aws_large_const`
-   → how does residue count affect `seconds_per_1M_steps`?
-3. **Force sweep:** `aws_small_force_sweep` — 8 sub-jobs on one box with
-   `max_parallel: 4` → models Phase 1 sweep cost on a single EC2 vs future Batch
-4. **Pulling overhead:** compare constant-T vs tension cases at same protein/steps
+1. **Per-core throughput by protein size:** compare `aws_baseline_small` (1dfn,
+   38 res), `aws_baseline_medium` (1ubq, 76 res), `aws_baseline_large`
+   (2qke_mon, 216 res) → how does `seconds_per_1M_steps` scale with residue
+   count? These cases use `omp_threads=1` because Upside's hot loop
+   parallelizes across **systems**, not within one trajectory — see
+   `src/main.cpp` near line 917. So 1 system = 1 core, regardless of `OMP_NUM_THREADS`.
+2. **OMP scaling (systems-level parallelism):** compare `aws_remd4`, `aws_remd8`,
+   `aws_remd16` → REMD has N systems, OMP runs them on N threads. Does going from
+   8 → 16 (i.e. across the HT boundary on `c7i.4xlarge`) actually help?
+3. **Process-level scaling:** compare `aws_indep8` vs `aws_indep16` → 8 vs 16
+   completely independent Upside processes saturating the box. This is the
+   closest analogue to running many Phase-1 jobs concurrently on a single host.
+4. **Force sweep (production-like):** `aws_force_sweep_8` runs 8 sub-jobs with
+   `max_parallel=8` → directly models the Phase-1 sweep cost on a single EC2
+   vs hypothetical AWS Batch.
+5. **Pulling overhead:** `aws_tension_medium` vs `aws_baseline_medium` (same
+   1ubq, same steps) → cost of constant-tension on top of constant-T.
 
 ### Extrapolating to production runs
 
@@ -630,26 +672,32 @@ All cases live in `benchmarks/matrix.json`. PDBs come from `example/` — no upl
 
 | Tier | Cases | Purpose | Where to run |
 |------|-------|---------|--------------|
-| `smoke` | 1 | Wiring check (~5k steps, < 30 s) | Dev container |
-| `local` | 2 | Pipeline validation (~50k steps, ~90 min total) | Dev container |
-| `aws` | 9 | Defensible performance/cost data | EC2 via bootstrap |
+| `smoke` | 1 | Wiring check (~5k steps, < 30 s) | Dev container or as pre-flight inside bootstrap |
+| `local` | 2 | Pipeline validation (~50k steps, ~5–60 min total in release mode) | Dev container |
+| `aws` | 10 | Defensible performance/cost data | EC2 via bootstrap |
 
-### Full case list
+### Full case list (current matrix)
 
-| case_id | tier | mode | protein | steps | omp_threads | instance_assumed |
-|---------|------|------|---------|-------|-------------|------------------|
-| `smoke_chig` | smoke | constant | chig (~10 res) | 5,000 | 4 | c7i.2xlarge |
-| `local_small_const` | local | constant | 1dfn | 50,000 | 4 | c7i.2xlarge |
-| `local_small_tension` | local | tension @ 22 pN | 1dfn | 50,000 | 4 | c7i.2xlarge |
-| `aws_small_const_4vcpu` | aws | constant | 1dfn | 1,000,000 | 4 | c7i.xlarge |
-| `aws_small_const_8vcpu` | aws | constant | 1dfn | 1,000,000 | 8 | c7i.2xlarge |
-| `aws_small_const_16vcpu` | aws | constant | 1dfn | 1,000,000 | 16 | c7i.4xlarge |
-| `aws_med_const` | aws | constant | 1ubq | 1,000,000 | 8 | c7i.2xlarge |
-| `aws_large_const` | aws | constant | 2qke_mon | 500,000 | 8 | c7i.2xlarge |
-| `aws_small_indep4` | aws | 4 independent replicas | 1dfn | 500,000 × 4 | 4 | c7i.4xlarge |
-| `aws_small_remd4` | aws | replica exchange (4 temps) | 1dfn | 500,000 | 4 | c7i.4xlarge |
-| `aws_med_tension` | aws | tension @ 22 pN | 1ubq | 500,000 | 8 | c7i.2xlarge |
-| `aws_small_force_sweep` | aws | 4 forces × 2 replicas | 1dfn | 500,000 × 8 jobs | 4 | c7i.4xlarge |
+All aws-tier cases run on the same `c7i.4xlarge` (16 vCPU = 8 physical + 8 HT).
+
+| case_id | mode | protein | steps | n_replicas | omp_threads | what it measures |
+|---------|------|---------|-------|-----------:|-------------|------------------|
+| `aws_baseline_small`  | constant   | 1dfn (38 res)     |    100,000 |  1 |  1 | Per-core throughput (small) |
+| `aws_baseline_medium` | constant   | 1ubq (76 res)     |     50,000 |  1 |  1 | Per-core throughput (medium) |
+| `aws_baseline_large`  | constant   | 2qke_mon (216 res)|     20,000 |  1 |  1 | Per-core throughput (large) |
+| `aws_remd4`           | REMD       | 1dfn              |     50,000 |  4 |  4 | OMP scaling (4 systems) |
+| `aws_remd8`           | REMD       | 1dfn              |     50,000 |  8 |  8 | OMP scaling (8 systems, 8 physical cores) |
+| `aws_remd16`          | REMD       | 1dfn              |     50,000 | 16 | 16 | OMP scaling at HT boundary |
+| `aws_indep8`          | 8 indep    | 1dfn              |     50,000 |  8 |  1 | Process-level parallelism (8 cores) |
+| `aws_indep16`         | 16 indep   | 1dfn              |     50,000 | 16 |  1 | Process-level parallelism (16 cores) |
+| `aws_tension_medium`  | tension    | 1ubq              |     50,000 |  1 |  1 | Tension overhead |
+| `aws_force_sweep_8`   | 4 F × 2 R  | 1dfn              | 50,000 × 8 |  2 |  1 | Phase-1 representative |
+
+> Cases with `n_replicas=1` are deliberately single-thread. Upside parallelizes
+> across systems, not within a single trajectory, so for 1 system the inner
+> loop only ever uses 1 core. Setting `omp_threads > 1` on those cases wastes
+> the rest of the instance — we kept them small (`duration` 20k–100k) so the
+> wall-time hit is bounded.
 
 ### Running subsets
 
@@ -658,7 +706,7 @@ All cases live in `benchmarks/matrix.json`. PDBs come from `example/` — no upl
 python benchmarks/scripts/run_matrix.py \
     --matrix benchmarks/matrix.json \
     --output-dir benchmarks/results/aws \
-    --only aws_small_const_8vcpu
+    --only aws_baseline_small
 
 # whole tier
 python benchmarks/scripts/run_matrix.py \
@@ -667,7 +715,7 @@ python benchmarks/scripts/run_matrix.py \
     --tier aws
 
 # skip a case
-python benchmarks/scripts/run_matrix.py ... --tier aws --skip aws_small_remd4
+python benchmarks/scripts/run_matrix.py ... --tier aws --skip aws_remd16
 ```
 
 Re-running a case **wipes and replaces** its previous `result.json`.
@@ -812,8 +860,54 @@ residue tension_x tension_y tension_z
 
 ### Only one CPU core seems busy
 
-Normal during the Python setup phase. During MD, expect up to `omp_threads`
-cores. Docker Desktop may cap container CPUs — check Settings → Resources.
+For **single-replica** cases (`n_replicas=1`, e.g. all the `aws_baseline_*`
+cases), this is **expected**. Upside parallelizes across `systems` only —
+`#pragma omp parallel for` over `for (ns=0; ns<systems.size(); ++ns)` in
+`src/main.cpp` near line 917 — and with one system there's nothing to
+parallelize. Setting `OMP_NUM_THREADS > 1` does not help; the matrix sets
+`omp_threads: 1` on those cases on purpose.
+
+If you want all 16 vCPUs busy, run the cases that actually have N systems:
+`aws_remd8` / `aws_remd16` (OMP) or `aws_indep8` / `aws_indep16` / `aws_force_sweep_8`
+(separate processes).
+
+### Upside runs ~7× slower than expected
+
+> `~/dynalab_results/_logs/matrix.log` shows `~2–3 steps/sec` on 1dfn, the
+> first case takes 30+ hours, and CloudWatch CPU sits at ~6%.
+
+**Cause:** Upside was built with `DEBUG=ON` (the historical CMake default),
+which compiles with `-Og -g -pg` (gprof instrumentation) instead of
+`-O3 --fast-math`. That's 5–10× slower for the MD hot loop.
+
+**Detect:**
+
+```bash
+cat obj/.upside_build_type   # should print "release"
+nm -an obj/upside | grep -E 'mcount|__gmon_start__'   # release: no matches
+```
+
+If `obj/.upside_build_type` is missing, the binary predates the marker —
+treat it as suspect and rebuild.
+
+**Fix:** rebuild release mode. On EC2, in the repo:
+
+```bash
+sudo rm -rf obj
+sudo docker run --rm \
+    -v "$HOME/DynaLab-merge-dynalab:/workspaces/DynaLab-merge-dynalab" \
+    -e UPSIDE_BUILD_TYPE=release \
+    dynalab-bench:latest \
+    bash -lc 'cd /workspaces/DynaLab-merge-dynalab && \
+              source /opt/conda/etc/profile.d/conda.sh && \
+              conda activate upside2-env && ./install.sh'
+```
+
+Or just rerun `bootstrap.sh` — it detects stale debug builds and force-rebuilds.
+
+### Docker Desktop CPU cap (local only)
+
+On macOS, Docker Desktop may cap container CPUs — check Settings → Resources.
 
 ### `aws: command not found` or credentials errors
 
@@ -853,11 +947,12 @@ sudo docker run --rm \
     -v "$HOME/DynaLab-merge-dynalab:/workspaces/DynaLab-merge-dynalab" \
     -v "$HOME/dynalab_results:/results" \
     -e UPSIDE_HOME=/workspaces/DynaLab-merge-dynalab \
+    -e PYTHONUNBUFFERED=1 \
     dynalab-bench:latest \
     bash -lc 'source /opt/conda/etc/profile.d/conda.sh && conda activate upside2-env && \
       python benchmarks/scripts/run_matrix.py \
         --matrix benchmarks/matrix.json --output-dir /results \
-        --only aws_med_tension && \
+        --only aws_tension_medium && \
       python benchmarks/scripts/summarize.py \
         --results-dir /results --pricing benchmarks/pricing.json \
         --output /results/report.md'
