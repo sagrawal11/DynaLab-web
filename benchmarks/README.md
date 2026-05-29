@@ -281,15 +281,15 @@ defensible cost/performance report.
 | Docker image build (first time) | ~15–25 min | Cached on re-run |
 | Upside build inside container | ~3–5 min | First time only; release mode |
 | Pre-flight smoke speed-check | <30 s | Aborts if release build looks wrong |
-| **10 aws-tier cases** | **~8–14 hours** typical | Sequential; biggest case is `aws_baseline_large` (2qke_mon) |
-| **Total EC2 wall time** | **~9–15 hours** typical | Depends on per-core throughput |
+| **16 aws-tier cases** | **~11–15 hours** typical | Sequential; biggest cases are `aws_ladder_ITQN` (~1.5 h) and `aws_ladder_IDP0` (~2 h) |
+| **Total EC2 wall time** | **~12–16 hours** typical | Depends on per-core throughput on large proteins |
 
 **Instance launched by default:** `c7i.4xlarge` (16 vCPU = 8 physical + 8 HT, 32 GiB RAM).
 
-| Billing mode | ~$ / hour | ~$ for 12 hr run |
+| Billing mode | ~$ / hour | ~$ for 14 hr run |
 |--------------|-----------|-------------------|
-| On-demand | ~$0.71 | ~$8.50 |
-| Spot (`USE_SPOT=1`) | ~$0.22 | ~$2.65 |
+| On-demand | ~$0.71 | ~$10 |
+| Spot (`USE_SPOT=1`) | ~$0.22 | ~$3.10 |
 
 > **Critical:** the build must be **release mode** (`-O3 --fast-math`). The build
 > system used to default to **debug** (`-Og -g -pg`), which is **5–10× slower**.
@@ -485,7 +485,7 @@ bash benchmarks/aws/bootstrap.sh
    under `SMOKE_MAX_SECONDS` (default 60 s). If the binary is somehow still
    debug, bootstrap aborts before you commit to the full matrix.
 5. Runs `fetch_proteins.py` (no-op for default matrix — all PDBs in `example/`)
-6. Runs **`run_matrix.py --tier aws`** (10 cases, sequential) with `PYTHONUNBUFFERED=1`
+6. Runs **`run_matrix.py --tier aws`** (16 cases, sequential) with `PYTHONUNBUFFERED=1`
    so `matrix.log` shows live progress
 7. Runs `summarize.py` → writes `~/dynalab_results/report.md`
 
@@ -587,7 +587,7 @@ script sets DeleteOnTermination on the root volume).
 Example header:
 
 ```
-Cases reported: 10 (ok: 10, fail: 0)
+Cases reported: 16 (ok: 16, fail: 0)
 Total compute on-demand cost (this run): $X.XX
 Total wall time (sum across cases): XXX min
 ```
@@ -674,30 +674,72 @@ All cases live in `benchmarks/matrix.json`. PDBs come from `example/` — no upl
 |------|-------|---------|--------------|
 | `smoke` | 1 | Wiring check (~5k steps, < 30 s) | Dev container or as pre-flight inside bootstrap |
 | `local` | 2 | Pipeline validation (~50k steps, ~5–60 min total in release mode) | Dev container |
-| `aws` | 10 | Defensible performance/cost data | EC2 via bootstrap |
+| `aws` | 16 | Defensible performance/cost data | EC2 via bootstrap |
 
 ### Full case list (current matrix)
 
 All aws-tier cases run on the same `c7i.4xlarge` (16 vCPU = 8 physical + 8 HT).
+`n_residues` below is the per-MODEL Cα count (the relevant residue number for
+Upside; counted by `count_residues()` in `run_one.py`).
 
-| case_id | mode | protein | steps | n_replicas | omp_threads | what it measures |
-|---------|------|---------|-------|-----------:|-------------|------------------|
-| `aws_baseline_small`  | constant   | 1dfn (38 res)     |    100,000 |  1 |  1 | Per-core throughput (small) |
-| `aws_baseline_medium` | constant   | 1ubq (76 res)     |     50,000 |  1 |  1 | Per-core throughput (medium) |
-| `aws_baseline_large`  | constant   | 2qke_mon (216 res)|     20,000 |  1 |  1 | Per-core throughput (large) |
-| `aws_remd4`           | REMD       | 1dfn              |     50,000 |  4 |  4 | OMP scaling (4 systems) |
-| `aws_remd8`           | REMD       | 1dfn              |     50,000 |  8 |  8 | OMP scaling (8 systems, 8 physical cores) |
-| `aws_remd16`          | REMD       | 1dfn              |     50,000 | 16 | 16 | OMP scaling at HT boundary |
-| `aws_indep8`          | 8 indep    | 1dfn              |     50,000 |  8 |  1 | Process-level parallelism (8 cores) |
-| `aws_indep16`         | 16 indep   | 1dfn              |     50,000 | 16 |  1 | Process-level parallelism (16 cores) |
-| `aws_tension_medium`  | tension    | 1ubq              |     50,000 |  1 |  1 | Tension overhead |
-| `aws_force_sweep_8`   | 4 F × 2 R  | 1dfn              | 50,000 × 8 |  2 |  1 | Phase-1 representative |
+**Size-ladder cases** — single-replica constant-T across protein sizes; this is the
+curve you extrapolate from to estimate any other simulation's cost on bigger proteins:
+
+| case_id | protein | n_residues | steps | rough wall (c7i.4xlarge) | what it measures |
+|---------|---------|-----------:|------:|-------------------------:|------------------|
+| `aws_baseline_chig`   | chig     |   10 |  50,000 | ~2 min  | tiny-protein per-core throughput |
+| `aws_ladder_1aie`     | 1aie     |   31 | 100,000 | ~25 min | small NMR ensemble (first model used) |
+| `aws_baseline_small`  | 1dfn     |   60 | 100,000 | ~50 min | small dimer baseline |
+| `aws_baseline_long`   | 1dfn     |   60 | 200,000 | ~100 min | steady-state validation (no drift?) |
+| `aws_baseline_medium` | 1ubq     |   76 |  50,000 | ~33 min | medium single chain |
+| `aws_baseline_large`  | 2qke_mon |  108 |  20,000 | ~18 min | medium-large |
+| `aws_ladder_ITQN`     | ITQN     |  503 |  15,000 | ~60–90 min | large single chain |
+| `aws_ladder_IDP0`     | IDP0     | 1024 |   8,000 | ~70–120 min | very large (≈1000 residues) |
+
+**Parallelism cases** — same 1dfn protein, varying how many systems / processes run on the box:
+
+| case_id | mode | n_replicas | omp_threads | what it measures |
+|---------|------|-----------:|------------:|------------------|
+| `aws_remd4`           | REMD     |  4 |  4 | OMP scaling (4 systems) |
+| `aws_remd8`           | REMD     |  8 |  8 | OMP scaling (8 systems, 8 physical cores) |
+| `aws_remd16`          | REMD     | 16 | 16 | OMP scaling at HT boundary |
+| `aws_indep8`          | 8 indep  |  8 |  1 | Process-level parallelism (8 cores) |
+| `aws_indep16`         | 16 indep | 16 |  1 | Process-level parallelism (16 cores) |
+
+**Pulling / sweep cases:**
+
+| case_id | mode | protein | n_residues | what it measures |
+|---------|------|---------|-----------:|------------------|
+| `aws_tension_medium`  | tension @ 22 pN | 1ubq | 76 | tension overhead vs constant-T at same N |
+| `aws_velocity_medium` | velocity        | 1ubq | 76 | velocity-clamp overhead vs tension |
+| `aws_force_sweep_8`   | 4 forces × 2 reps, max_parallel=8 | 1dfn | 60 | Phase-1 sweep on one box |
 
 > Cases with `n_replicas=1` are deliberately single-thread. Upside parallelizes
 > across systems, not within a single trajectory, so for 1 system the inner
 > loop only ever uses 1 core. Setting `omp_threads > 1` on those cases wastes
-> the rest of the instance — we kept them small (`duration` 20k–100k) so the
-> wall-time hit is bounded.
+> the rest of the instance — we kept their `duration` capped so each case finishes
+> in a bounded time (and the very-large ones get fewer steps to keep wall time
+> reasonable).
+
+> **Note on 1tup (skipped):** 1tup has DNA chains (E, F). Upside is a protein-only
+> force field, so 1tup was excluded from the ladder to keep the residue-count vs
+> cost story clean. If you need a real ~500-residue protein-only data point, ITQN
+> (503 residues, single chain) is the one.
+
+### How to extrapolate from the ladder
+
+Once the report is in hand, fit `seconds_per_1M_steps` vs `n_residues` from the
+ladder cases. That gives you a per-residue cost model:
+
+```
+estimated_seconds_for_N_steps(protein_N_residues) ≈
+  f(N_residues) * (N_steps / 1e6)
+```
+
+You can then estimate the cost of *any other* simulation type by combining
+that throughput with the relevant multiplier from the matrix (e.g. tension is
+~1.0× constant-T at the same N; REMD-4 uses ~4 cores; etc.). See the
+"Cost model" section for the formulas.
 
 ### Running subsets
 

@@ -67,14 +67,29 @@ def measure_dir_size_bytes(p: Path) -> int:
 
 
 def count_residues(pdb_path: Path) -> int:
+    """Count protein residues by Cα atoms in the first MODEL.
+
+    Rationale:
+      - Counting (chain, resseq) over ATOM+HETATM inflates the number on PDBs
+        with crystal waters or ligands (e.g. 1dfn HETATMs push the count from
+        60 to 104).
+      - Counting CA atoms in the first MODEL is the standard residue measure
+        Upside cares about, matches the per-MODEL view, and gives a clean
+        scaling axis for the cost report.
+    """
     seen: set[tuple[str, str]] = set()
     try:
         with pdb_path.open() as f:
             for line in f:
-                if line.startswith(("ATOM  ", "HETATM")):
-                    chain = line[21:22]
-                    resseq = line[22:27].strip()
-                    seen.add((chain, resseq))
+                if line.startswith("ENDMDL"):
+                    break  # first MODEL only
+                if not line.startswith("ATOM"):
+                    continue
+                if line[12:16].strip() != "CA":
+                    continue
+                chain = line[21:22]
+                resseq = line[22:27].strip()
+                seen.add((chain, resseq))
     except OSError:
         return 0
     return len(seen)
@@ -244,6 +259,12 @@ def build_command(case: dict, work_dir: Path, upside_home: Path) -> list[str]:
         n_replicas = int(case.get("n_replicas", 2))
         sweep_dir = work_dir / "sweep"
         sweep_dir.mkdir(parents=True, exist_ok=True)
+        # Force_Sweep.py expects a manifest.json to already exist (the web UI
+        # creates it before calling). For benchmark runs we initialise an empty
+        # one so Force_Sweep has something to load and append to.
+        manifest_path = sweep_dir / "manifest.json"
+        if not manifest_path.is_file():
+            manifest_path.write_text(json.dumps({"sub_jobs": [], "status": "running"}))
         cmd = [
             py, f"{upside_home_str}/start/Force_Sweep.py",
             "--pdb", str(work_dir / "input.pdb"),

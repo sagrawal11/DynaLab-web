@@ -256,10 +256,23 @@ def main() -> int:
                 "total_steps": args.duration,
             })
 
-    manifest = json.loads(manifest_path.read_text())
+    # The web UI pre-creates the manifest before invoking this script, but
+    # standalone/benchmark callers may not. Tolerate either: load an existing
+    # manifest if present, otherwise start with an empty dict.
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except FileNotFoundError:
+        manifest = {}
+    except json.JSONDecodeError:
+        manifest = {}
+    if not isinstance(manifest, dict):
+        manifest = {}
     manifest["sub_jobs"] = sub_jobs
     manifest["calibration_factor_pn_per_upside"] = factor
     manifest["upside_home"] = str(upside_home)
+    manifest["status"] = manifest.get("status", "running")
+    manifest["started"] = manifest.get("started", int(time.time()))
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2))
 
     # Pre-write the per-sub-job .dat files so the simulation can find them.
